@@ -96,6 +96,7 @@
     h1 { font-size: clamp(40px, 12vw, 60px); top: calc(var(--gutter) + 40px); }
     .lede, .vcap, .meta .hide-sm { display: none; }
     .meta { gap: 14px; }
+    .wordmark .label { display: none; }
     .place { bottom: calc(var(--gutter) + 82px); }
     .place .name { font-size: 19px; }
     footer .hints { display: none; }
@@ -303,7 +304,8 @@ let dpr = maxDPR;
 
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(32, 1, 0.5, 120);
-const HOME = { pos: new THREE.Vector3(0.6, 9.4, 16.2), target: new THREE.Vector3(0, -0.55, 0.2) };
+const HOME_BASE = new THREE.Vector3(0.6, 9.4, 16.2);
+const HOME = { pos: HOME_BASE.clone(), target: new THREE.Vector3(0, -0.55, 0.2) };
 camera.position.set(2.5, 17, 27);
 const controls = new OrbitControls(camera, canvas);
 controls.target.copy(HOME.target);
@@ -949,6 +951,12 @@ function resize() {
   camera.aspect = w / h;
   camera.fov = w / h < 0.8 ? 46 : w / h < 1.2 ? 38 : 32;
   camera.updateProjectionMatrix();
+  // back the home view off on narrow screens so the whole block fits across
+  const hfov = 2 * Math.atan(Math.tan(camera.fov * Math.PI / 360) * camera.aspect);
+  const need = 12.4 / (2 * Math.tan(hfov / 2)) / HOME_BASE.distanceTo(HOME.target);
+  const prev = HOME.pos.clone(); HOME.pos.copy(HOME.target).addScaledVector(HOME_BASE.clone().sub(HOME.target), Math.max(1, need));
+  if (!intro) camera.position.add(HOME.pos.clone().sub(prev));
+  controls.maxDistance = Math.max(34, HOME.pos.distanceTo(HOME.target) * 1.5);
   const W = Math.round(w * dpr), H = Math.round(h * dpr);
   makeTargets(W, H);
   finalMat.uniforms.uFocus.value = w / h < 0.8 ? 0.42 : 0.47;
