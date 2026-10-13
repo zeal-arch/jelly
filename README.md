@@ -5,6 +5,7 @@ A collection of single-file interactive browser studies. Each one lives in its o
 | Folder | What it is |
 |:---|:---|
 | [melon-jelly-knife](melon-jelly-knife/) | WebGPU soft-body watermelon slice you can stretch and cut with a knife |
+| [jelly-knife-citrus](jelly-knife-citrus/) | WebGPU soft-body orange slice you can stretch, cut with a knife or crinkle cutter, and stamp with cookie cutters |
 
 ## Run locally
 
