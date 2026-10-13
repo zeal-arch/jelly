@@ -893,7 +893,7 @@ class World {
     this.E = Int32Array.from(E);
     this.restVolume = this.V0.reduce((a, b) => a + b, 0);
     this.gravity = 60; this.k = 0.006; this.damp = 0.004; this.mu = 0.6; this.rep = 0.034;
-    this.grab = null; this.blade = null;
+    this.grab = null; this.blade = null; this.bounds = [-2.5, 2.5, -1.7, 2.1];
     this.hashHead = new Int32Array(1 << 14); this.hashNext = new Int32Array(np);
   }
   // mass-weighted best-fit frame of a piece: world = R (X − cr) + cw
@@ -1053,8 +1053,12 @@ class World {
     }
   }
   solveFloor() {
-    const { x, xp, np } = this, mu = this.mu;
+    const { x, xp, np } = this, mu = this.mu, B = this.bounds;
     for (let i = 0; i < np; i++) {
+      // invisible walls keep every piece on the studio floor, in view
+      const px = x[3 * i], pz = x[3 * i + 2];
+      if (px < B[0]) x[3 * i] = B[0]; else if (px > B[1]) x[3 * i] = B[1];
+      if (pz < B[2]) x[3 * i + 2] = B[2]; else if (pz > B[3]) x[3 * i + 2] = B[3];
       const y = x[3 * i + 1]; if (y >= 0) continue;
       const pen = -y; x[3 * i + 1] = 0;
       const dx = x[3 * i] - xp[3 * i], dz = x[3 * i + 2] - xp[3 * i + 2], dl = Math.sqrt(dx * dx + dz * dz);
@@ -2360,7 +2364,8 @@ async function main() {
     if (e.pointerId !== drag.id) return;
     if (drag.mode === 'grab') moveGrab(e.clientX, e.clientY);
     else if (drag.mode === 'orbit') {
-      cam.yaw -= (e.clientX - drag.x) * 0.006; cam.pitch = Math.max(0.2, Math.min(1.35, cam.pitch + (e.clientY - drag.y) * 0.005));
+      // stay in front of the studio sweep: never behind the backdrop, never down at floor level
+      cam.yaw = Math.max(-1.15, Math.min(1.15, cam.yaw - (e.clientX - drag.x) * 0.006)); cam.pitch = Math.max(0.36, Math.min(1.35, cam.pitch + (e.clientY - drag.y) * 0.005));
       drag.x = e.clientX; drag.y = e.clientY;
     } else if (drag.mode === 'stroke') {
       drag.bx = e.clientX; drag.by = e.clientY; const [lx, ly] = local(e);
@@ -2386,7 +2391,7 @@ async function main() {
   canvas.addEventListener('wheel', e => {
     e.preventDefault();
     if (drag?.mode === 'grab') twistGrab(-e.deltaY * 0.004);
-    else cam.dist = Math.max(3.4, Math.min(9, cam.dist * Math.exp(e.deltaY * 0.0012)));
+    else cam.dist = Math.max(3.6, Math.min(8, cam.dist * Math.exp(e.deltaY * 0.0012)));
   }, { passive: false });
   canvas.addEventListener('dblclick', () => { cam.yaw = -0.28; cam.pitch = 0.72; cam.dist = 5.6; });
 
