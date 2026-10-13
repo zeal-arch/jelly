@@ -209,13 +209,13 @@
   </div>
   <div class="group">
     <div class="slider">
-      <div class="row"><label class="label" for="firm">Firmness</label><output id="firmOut">0.45</output></div>
-      <input type="range" id="firm" min="0" max="1" step="0.01" value="0.45">
+      <div class="row"><label class="label" for="firm">Firmness</label><output id="firmOut">0.40</output></div>
+      <input type="range" id="firm" min="0" max="1" step="0.01" value="0.40">
       <div class="ends"><span>trembling</span><span>set</span></div>
     </div>
     <div class="slider">
-      <div class="row"><label class="label" for="damp">Internal damping</label><output id="dampOut">0.40</output></div>
-      <input type="range" id="damp" min="0" max="1" step="0.01" value="0.40">
+      <div class="row"><label class="label" for="damp">Internal damping</label><output id="dampOut">0.25</output></div>
+      <input type="range" id="damp" min="0" max="1" step="0.01" value="0.25">
       <div class="ends"><span>lively</span><span>syrupy</span></div>
     </div>
   </div>
@@ -259,7 +259,7 @@ const GRID = { x0: -1.12, z0: -0.54, h: 0.01, nx: 225, nz: 125 };
 GRID.n = GRID.nx * GRID.nz;
 const SIM = { ds: 0.072, h: 0.1, levels: 3 };       // sim boundary spacing, interior lattice, particle levels through T
 const REN = { ds: 0.0135, cap: 0.05, rings: 5 };       // render outline spacing, cap lattice, bevel rings per edge
-const MIN_AREA = 0.008, MIN_DEPTH = 0.022;              // crumbs smaller than this are dropped
+const MIN_AREA = 0.022, MIN_DEPTH = 0.03;              // crumbs smaller than this are dropped
 
 function rng(seed) {
   let a = seed >>> 0;
@@ -875,7 +875,7 @@ class World {
       for (let c = 0; c < 4; c++) this.m[T[4 * t + c]] += DENSITY * v / 4;
       this.q[4 * t + 3] = 1;
       let cx = 0, cz = 0; for (let c = 0; c < 4; c++) { cx += X[3 * T[4 * t + c]]; cz += X[3 * T[4 * t + c] + 2]; }
-      const a = anatomy(cx / 4, cz / 4); this.kmul[t] = a === 4 ? 3.2 : a === 3 ? 2.2 : a === 2 ? 1.5 : 1;
+      const a = anatomy(cx / 4, cz / 4); this.kmul[t] = a === 4 ? 2.4 : a === 3 ? 1.8 : a === 2 ? 1.3 : 1;
     }
     for (let i = 0; i < np; i++) this.w[i] = this.m[i] > 0 ? 1 / this.m[i] : 0;
     for (let t = 0; t < nt; t++) {
@@ -892,7 +892,7 @@ class World {
     }
     this.E = Int32Array.from(E);
     this.restVolume = this.V0.reduce((a, b) => a + b, 0);
-    this.gravity = 9; this.k = 0.25; this.damp = 0.3; this.mu = 0.6; this.rep = 0.034;
+    this.gravity = 60; this.k = 0.006; this.damp = 0.004; this.mu = 0.6; this.rep = 0.034;
     this.grab = null; this.blade = null;
     this.hashHead = new Int32Array(1 << 14); this.hashNext = new Int32Array(np);
   }
@@ -927,8 +927,12 @@ class World {
     if (this.blade) this.blade(this);
     this.solveContacts();
     this.solveFloor();
-    const ih = 1 / h;
-    for (let i = 0; i < 3 * np; i++) v[i] = (x[i] - xp[i]) * ih;
+    const ih = 1 / h, vmax2 = 14 * 14;
+    for (let i = 0; i < np; i++) {
+      let a = (x[3 * i] - xp[3 * i]) * ih, b = (x[3 * i + 1] - xp[3 * i + 1]) * ih, c = (x[3 * i + 2] - xp[3 * i + 2]) * ih;
+      const s2 = a * a + b * b + c * c; if (s2 > vmax2) { const f = 14 / Math.sqrt(s2); a *= f; b *= f; c *= f; }
+      v[3 * i] = a; v[3 * i + 1] = b; v[3 * i + 2] = c;
+    }
     this.dampEdges();
   }
   solveGrab() {
@@ -940,7 +944,7 @@ class World {
     }
   }
   solveTets(h) {
-    const { x, T, Dinv: M, q, Rof, m, w, V0, nt } = this, alpha = 2e-7 / (h * h);
+    const { x, T, Dinv: M, q, Rof, m, w, V0, nt } = this, alpha = 1e-9 / (h * h);
     if (this.ktFor !== this.k) { this.ktFor = this.k; for (let t = 0; t < nt; t++) this.kt[t] = 1 - Math.pow(1 - this.k, this.kmul[t]); }
     const KT = this.kt;
     for (let t = 0; t < nt; t++) {
@@ -1005,8 +1009,10 @@ class World {
       const C = V - V0[t];
       const wa = w[a], wb = w[b], wc = w[c], wd = w[d];
       const den = wa * (g0x * g0x + g0y * g0y + g0z * g0z) + wb * (g1x * g1x + g1y * g1y + g1z * g1z) + wc * (g2x * g2x + g2y * g2y + g2z * g2z) + wd * (g3x * g3x + g3y * g3y + g3z * g3z) + alpha;
-      if (den < 1e-14) continue;
-      const lam = -C / den;
+      if (den < 1e-14 || V <= 0) continue; // inverted: let shape matching turn it back first
+      let lam = -C / den;
+      const cap = 0.002 / Math.sqrt(den * 1e-30 + Math.max(wa * (g0x * g0x + g0y * g0y + g0z * g0z), wb * (g1x * g1x + g1y * g1y + g1z * g1z), wc * (g2x * g2x + g2y * g2y + g2z * g2z), wd * (g3x * g3x + g3y * g3y + g3z * g3z)) * Math.max(wa, wb, wc, wd) + 1e-30);
+      if (lam > cap) lam = cap; else if (lam < -cap) lam = -cap; // no particle moves more than ~2 mm per substep
       x[3 * a] += lam * wa * g0x; x[3 * a + 1] += lam * wa * g0y; x[3 * a + 2] += lam * wa * g0z;
       x[3 * b] += lam * wb * g1x; x[3 * b + 1] += lam * wb * g1y; x[3 * b + 2] += lam * wb * g1z;
       x[3 * c] += lam * wc * g2x; x[3 * c + 1] += lam * wc * g2y; x[3 * c + 2] += lam * wc * g2z;
@@ -1520,8 +1526,10 @@ struct SO2 { @location(0) color: vec4f, @location(1) lin: vec4f };
 `;
 
 // material of the fruit at a rest point
+// sigSeg.rgb = segment body colour (linear), sigSeg.w = density; sigZest.rgb = zest body colour;
+// colZest = zest surface, colPith = pith, colSeg = vesicle-wall tint
 const WGSL_FRUIT = /* wgsl */`
-struct Mat { sig: vec3f, scat: f32, surf: vec3f, cover: f32 };
+struct Mat { body: vec3f, scat: f32, surf: vec3f, cover: f32, vh: f32 };
 fn fruit(rp: vec3f) -> Mat {
   var m: Mat;
   let q = vec2f(rp.x, rp.z - ZF);
@@ -1529,33 +1537,37 @@ fn fruit(rp: vec3f) -> Mat {
   let th = atan2(q.y, q.x);
   let segW = PI / 5.0;
   let k = round(th / segW);
-  let memD = abs(th - k * segW) * r;  // distance to the nearest radial membrane
+  let memD = abs(th - k * segW) * r;
   let isMem = select(0.0, 1.0, k > 0.5 && k < 4.5);
-  m.sig = u.sigSeg.rgb; m.scat = 0.04; m.surf = u.colSeg.rgb; m.cover = 0.0;
-  if (r > SR - ${SLICE.zest.toFixed(3)}) { // zest: dense, coloured, fine oil glands
+  let rZ = SR - ${SLICE.zest.toFixed(3)};
+  let rP = SR - ${SLICE.pith.toFixed(3)};
+  m.vh = 0.0; m.cover = 0.0;
+  if (r > rZ) { // zest: dense colour, fine oil glands
     let pores = smoothstep(0.55, 0.85, noise3(rp * 90.0));
-    m.sig = u.sigZest.rgb; m.scat = 0.22; m.surf = u.colZest.rgb * (1.0 - 0.18 * pores); m.cover = 0.55;
-  } else if (r > SR - ${SLICE.pith.toFixed(3)}) { // pith: milky
-    let t = smoothstep(SR - ${SLICE.pith.toFixed(3)}, SR - ${SLICE.zest.toFixed(3)}, r);
-    m.sig = mix(vec3f(0.5, 0.6, 1.1), u.sigZest.rgb * 0.4, t * t); m.scat = 0.75; m.surf = mix(u.colPith.rgb, u.colZest.rgb, t * t * 0.5); m.cover = 0.42;
+    m.body = u.sigZest.rgb; m.scat = 0.9; m.surf = u.colZest.rgb * (1.0 - 0.2 * pores); m.cover = 0.5;
+    m.vh = pores * 0.15;
+  } else if (r > rP) { // pith: creamy, a little translucent, warming toward the zest
+    let t = smoothstep(rP, rZ, r);
+    m.body = mix(u.colPith.rgb, u.sigZest.rgb, t * t * 0.6); m.scat = 0.85; m.surf = m.body; m.cover = 0.3;
   } else if (r < ${SLICE.core.toFixed(3)}) { // pithy core
-    m.sig = mix(vec3f(0.6, 0.7, 1.2), u.sigSeg.rgb, 0.4); m.scat = 0.3; m.surf = u.colPith.rgb; m.cover = 0.18;
+    m.body = mix(u.colPith.rgb, u.sigSeg.rgb, 0.6); m.scat = 0.65; m.surf = m.body; m.cover = 0.08;
   } else {
-    // juice vesicles: elongated teardrop cells, radial
+    // juice vesicles: elongated teardrop sacs, radial; each a little dome of juice
     let segC = (floor(th / segW) + 0.5) * segW;
     let a = (th - segC) * r;
-    let v = voro(vec3f(r / 0.085, a / 0.03, rp.y / 0.045));
-    let wall = 1.0 - smoothstep(0.02, 0.16, v.y - v.x);
-    let dens = 0.82 + 0.36 * v.z;
-    m.sig = u.sigSeg.rgb * dens * (1.0 - 0.25 * wall);
-    m.scat = 0.012 + 0.06 * wall;
-    m.surf = mix(u.colSeg.rgb, u.colPith.rgb, wall * 0.35);
-    m.cover = wall * 0.07;
-    // segment wall next to the pith, and the radial membranes
-    let edge = smoothstep(SR - ${SLICE.pith.toFixed(3)} - 0.022, SR - ${SLICE.pith.toFixed(3)}, r);
+    let v = voro(vec3f(r / 0.08, a / 0.028, rp.y / 0.05));
+    let edge = v.y - v.x;
+    let wall = 1.0 - smoothstep(0.02, 0.13, edge);
+    let juice = 0.82 + 0.3 * v.z;
+    m.body = mix(u.sigSeg.rgb * juice, u.colSeg.rgb, wall * 0.55);
+    m.scat = 0.55 + 0.2 * wall;
+    m.surf = u.colSeg.rgb; m.cover = wall * 0.1;
+    m.vh = smoothstep(0.0, 0.5, edge) * 0.8;
+    // the segment wall next to the pith and the radial membranes: thin milky skins
+    let skin = smoothstep(rP - 0.02, rP, r) * 0.7;
     let mem = isMem * (1.0 - smoothstep(0.003, 0.009, memD));
-    let w2 = max(edge * 0.6, mem);
-    m.sig = mix(m.sig, vec3f(0.5, 0.65, 1.2), w2); m.scat = mix(m.scat, 0.65, w2); m.surf = mix(m.surf, u.colPith.rgb, w2); m.cover = mix(m.cover, 0.35, w2);
+    let w2 = max(skin, mem);
+    m.body = mix(m.body, u.colPith.rgb, w2); m.scat = mix(m.scat, 0.9, w2); m.surf = mix(m.surf, u.colPith.rgb, w2); m.cover = mix(m.cover, 0.4, w2); m.vh *= 1.0 - w2;
   }
   return m;
 }
@@ -1595,56 +1607,60 @@ const WGSL_FRONT = WGSL_COMMON + WGSL_JELLY_VS + WGSL_FRUIT + /* wgsl */`
 @group(0) @binding(3) var backTex: texture_2d<f32>;
 @group(0) @binding(4) var samp: sampler;
 @fragment fn fs(in: VO) -> @location(0) vec4f {
-  let P = in.wpos; var N = normalize(in.nrm);
+  let P = in.wpos;
   let V = normalize(u.cam.xyz - P);
-  let nvRaw = dot(N, V);
-  if (nvRaw < 0.02) { N = normalize(N + V * (0.02 - nvRaw)); }
+  var N = normalize(in.nrm);
+  N = normalize(N + V * max(0.02 - dot(N, V), 0.0));
   let L = normalize(u.light.xyz);
   let dims = vec2i(textureDimensions(sceneLin));
   let pix = clamp(vec2i(in.pos.xy), vec2i(0), dims - 1);
   let back = textureLoad(backTex, pix, 0);
   let sl = textureLoad(sceneLin, pix, 0).r;
   let fl = in.lin;
-  var bl = back.x; if (bl <= fl) { bl = fl + 0.06; }
+  let bl = select(back.x, fl + 0.06, back.x <= fl);
   let ray = length(u.cam.xyz - P) / max(fl, 1e-3);
   let thick = clamp((min(bl, sl) - fl) * ray, 0.0, 2.5);
-  // materials at the front and the far side, shaded from rest space so cut faces show the inside
+  // the fruit at the front and at the far side, from rest space, so cut faces show the inside
   let mf = fruit(in.rest);
   let mb = fruit(back.yzw);
-  let sig = mix(mf.sig, mb.sig, 0.45) * u.sigSeg.w;
-  let scat = mix(mf.scat, mb.scat, 0.4);
+  // juicy relief: each vesicle is a small dome (bump from screen-space derivatives)
+  let hx = dpdx(mf.vh); let hy = dpdy(mf.vh);
+  let sx = dpdx(P); let sy = dpdy(P);
+  let R1 = cross(sy, N); let R2 = cross(N, sx);
+  let det = dot(sx, R1);
+  let grad = sign(det) * (hx * R1 + hy * R2);
+  N = normalize(abs(det) * N - grad * 0.0035 * smoothstep(1.2, 0.35, length(grad) * 0.0035 / max(abs(det), 1e-9) ));
+  let body = mix(mf.body, mb.body, 0.35);
+  let scat = mix(mf.scat, mb.scat, 0.3);
   // refraction by view-ray thickness
   let rd = refract(-V, N, 1.0 / 1.38);
-  let Pr = P + rd * thick * 0.85;
-  let cr = u.viewProj * vec4f(Pr, 1.0);
-  var uv = vec2f(cr.x / cr.w * 0.5 + 0.5, 0.5 - cr.y / cr.w * 0.5);
-  uv = clamp(uv, vec2f(0.001), vec2f(0.999));
+  let cr = u.viewProj * vec4f(P + rd * thick * 0.8, 1.0);
+  var uv = clamp(vec2f(cr.x / cr.w * 0.5 + 0.5, 0.5 - cr.y / cr.w * 0.5), vec2f(0.001), vec2f(0.999));
   let lr = textureLoad(sceneLin, clamp(vec2i(uv * u.screen.xy), vec2i(0), dims - 1), 0).r;
   if (lr < fl) { uv = in.pos.xy * u.screen.zw; }
   let behind = textureSampleLevel(sceneColor, samp, uv, 0.0).rgb;
-  // Beer–Lambert
-  let Tr = exp(-sig * thick);
-  var col = behind * Tr;
-  // milky scattering (pith, core, membranes, vesicle walls)
-  let ms = 1.0 - exp(-scat * 9.0 * max(thick, 0.03));
-  let lightAmt = 0.62 + 0.55 * max(dot(N, L), 0.0);
-  let scatCol = mix(exp(-sig * 0.22) * 0.95, u.colPith.rgb, smoothstep(0.12, 0.5, scat));
-  col = mix(col, scatCol * lightAmt * 0.92, ms);
-  // body glow: light carried through the jelly, strongest at thin edges and when back-lit
-  let glowTint = exp(-sig * 0.11);
-  let thin = exp(-thick * 5.0);
-  let backLit = 0.35 + 0.65 * pow(clamp(dot(V, -RIMDIR) * 0.5 + 0.5, 0.0, 1.0), 2.0);
-  col += glowTint * thin * backLit * 0.32 + glowTint * glowTint * (1.0 - thin) * 0.12 * lightAmt;
-  // surface layer: zest, pith, membranes
-  let cover = mf.cover;
-  col = mix(col, mf.surf * (0.5 + 0.75 * max(dot(N, L), 0.0)), cover);
-  // studio reflections
+  // hue-preserving Beer–Lambert: the absorption spectrum is the jelly's own colour, so thick jelly
+  // deepens toward a richer orange instead of drifting brown; path length saturates
+  let sig = -log(max(body, vec3f(0.012))) * u.sigSeg.w;
+  let tEff = 0.5 * (1.0 - exp(-thick / 0.5));
+  let Tr = exp(-sig * tEff);
+  // light scattered inside the gummy body: this is what keeps it orange on any background
+  let S = clamp(1.0 - exp(-thick * scat * 7.0), 0.0, 0.94);
+  let wrap = clamp((dot(N, L) + 0.6) / 1.6, 0.0, 1.0);
+  let backLit = pow(clamp(dot(V, -RIMDIR) * 0.5 + 0.5, 0.0, 1.0), 2.0);
+  let thin = exp(-thick * 4.0);
+  let bodyRad = body * (0.42 + 0.78 * wrap) + body * sqrt(body) * (0.25 + 0.45 * backLit) * (0.4 + thin);
+  var col = behind * Tr * (1.0 - S) + bodyRad * S;
+  col += body * thin * backLit * 0.25;                                     // back-lit glow at thin edges
+  // surface skins: zest, pith, membranes
+  col = mix(col, mf.surf * (0.45 + 0.8 * max(dot(N, L), 0.0)), mf.cover);
+  // wet, glossy studio reflections
   let nv = max(dot(N, V), 0.0);
-  let F = schlick(nv, 0.035);
-  let Rv = reflect(-V, N);
-  col = col * (1.0 - F) + env(Rv, 0.04) * F;
-  col += vec3f(1.0, 0.98, 0.95) * ggx(N, V, L, 0.09) * 0.55 * max(dot(N, L), 0.0) * schlick(dot(normalize(V + L), V), 0.035) * 6.0;
-  col += vec3f(0.93, 0.96, 1.0) * ggx(N, V, normalize(RIMDIR), 0.14) * 0.25 * max(dot(N, normalize(RIMDIR)), 0.0);
+  let F = schlick(nv, 0.04);
+  col = col * (1.0 - F) + env(reflect(-V, N), 0.03) * F;
+  let H = normalize(V + L);
+  col += vec3f(1.0, 0.98, 0.95) * ggx(N, V, L, 0.11) * max(dot(N, L), 0.0) * schlick(dot(H, V), 0.04) * 4.0;
+  col += vec3f(0.93, 0.96, 1.0) * ggx(N, V, normalize(RIMDIR), 0.12) * 0.3 * max(dot(N, normalize(RIMDIR)), 0.0);
   return vec4f(col, 1.0);
 }
 `;
@@ -1883,10 +1899,10 @@ const QS = new URLSearchParams(location.search);
 const MAX_PIECES = 14;
 const SCALE_CM = 4;          // illustrative: 1 sim unit ≈ 4 cm
 const GUMMY = 1.3;           // g/cm³
-const VARIETIES = {
-  orange: { name: 'Orange', sigSeg: [0.32, 1.45, 5.6, 1], sigZest: [2.4, 7.5, 18, 1], zest: '#ee7413', pith: '#f4eadb', seg: '#f6a43a', shadow: [1.0, 0.6, 0.22] },
-  blood: { name: 'Blood Orange', sigSeg: [0.55, 5.6, 4.6, 1], sigZest: [2.2, 8.5, 13, 1], zest: '#dd5a22', pith: '#f2e0d6', seg: '#b8213a', shadow: [0.95, 0.32, 0.3] },
-  lemon: { name: 'Lemon', sigSeg: [0.22, 0.5, 5.8, 1], sigZest: [1.1, 2.0, 19, 1], zest: '#f1d01b', pith: '#f7f2de', seg: '#f0d955', shadow: [1.0, 0.9, 0.4] },
+const VARIETIES = { // body = segment jelly, zest = rind surface, rind = rind jelly, wall = vesicle walls
+  orange: { name: 'Orange', body: '#ff7a0e', rind: '#f2650c', zest: '#f36f10', pith: '#fff1dc', wall: '#ffb24a', density: 1.5, shadow: [1.0, 0.55, 0.15] },
+  blood: { name: 'Blood Orange', body: '#c3132e', rind: '#e4561c', zest: '#e8601f', pith: '#f9e4da', wall: '#ff7a6c', density: 1.15, shadow: [0.95, 0.3, 0.25] },
+  lemon: { name: 'Lemon', body: '#ffd512', rind: '#f6cc0e', zest: '#f7d21a', pith: '#fdf7e2', wall: '#fff19a', density: 1.7, shadow: [1.0, 0.88, 0.35] },
 };
 const HINTS = {
   hand: ['Hand', 'Grab any piece and pull. Scroll, or add a second finger, while holding to twist the patch.'],
@@ -1973,10 +1989,11 @@ async function main() {
   const cuts = makeCutService();
 
   // ── world ──
-  let world, variety = 'orange', firm = 0.45, damp = 0.4;
+  let world, variety = 'orange', firm = 0.4, damp = 0.25;
   const initialSdf = gridFrom(sliceSdf);
   function applyParams(w) {
-    w.k = 0.035 + 0.5 * firm ** 1.6; w.damp = 0.05 + 0.6 * damp ** 1.3; w.mu = 0.65; w.gravity = 9;
+    // gummy: soft per-substep shape matching (≈5–9 Hz jiggle), light edge damping, real-ish gravity, sticky floor
+    w.k = 0.0025 + 0.03 * firm * firm; w.damp = 0.03 * damp ** 1.5; w.mu = 1.0; w.gravity = 60;
   }
   function install(w) { world = w; applyParams(w); R.setWorld(w); $('rPieces').textContent = w.pieces.length; }
   function resetWorld() {
@@ -2058,8 +2075,8 @@ async function main() {
   // ── grab ──
   let grab = null;
   function startGrab(hit, cx, cy) {
-    const p = world.pieces[hit.piece], x = world.x, rg = 0.24, idx = [], wts = [], all = [];
-    for (let i = p.p0; i < p.p1; i++) { const d = Math.hypot(x[3 * i] - hit.point[0], x[3 * i + 1] - hit.point[1], x[3 * i + 2] - hit.point[2]); all.push([d, i]); if (d < rg) { idx.push(i); const s = 1 - (d / rg) ** 2; wts.push(0.5 * s * s + 0.04); } }
+    const p = world.pieces[hit.piece], x = world.x, rg = 0.32, idx = [], wts = [], all = [];
+    for (let i = p.p0; i < p.p1; i++) { const d = Math.hypot(x[3 * i] - hit.point[0], x[3 * i + 1] - hit.point[1], x[3 * i + 2] - hit.point[2]); all.push([d, i]); if (d < rg) { idx.push(i); const s = 1 - (d / rg) ** 2; wts.push(0.22 * s * s + 0.02); } }
     if (idx.length < 4) { all.sort((a, b) => a[0] - b[0]); idx.length = 0; wts.length = 0; for (const [d, i] of all.slice(0, 6)) { idx.push(i); wts.push(0.35); } }
     world.setGrab(hit.piece, idx, wts, hit.point);
     grab = { start: hit.point.slice(), plane: V3.norm(V3.sub(eye, hit.point)), twist: 0, pointerAngle: null };
@@ -2182,6 +2199,8 @@ async function main() {
       }
       if (plan.kind === 'cutter' && s) s = -s; // carve side +1 kept the inside of the ring
       for (let i = p.p0; i < p.p1; i++) w.side[i] = s;
+      // a gentle shove apart along the blade, so the soft halves don't slump back together
+      if (s && plan.kind !== 'cutter') for (let i = p.p0; i < p.p1; i++) { w.v[3 * i] += plan.n[0] * s * 0.7; w.v[3 * i + 2] += plan.n[2] * s * 0.7; }
     });
     endGrab();
     install(w);
@@ -2241,7 +2260,7 @@ async function main() {
       for (const k of a.inside) {
         const p = world.pieces[k], n = p.p1 - p.p0; let mx = 0, mz = 0;
         for (let i = p.p0; i < p.p1; i++) { mx += world.v[3 * i] / n; mz += world.v[3 * i + 2] / n; }
-        for (let i = p.p0; i < p.p1; i++) { world.v[3 * i] -= mx; world.v[3 * i + 2] -= mz; world.v[3 * i + 1] += 1.35; }
+        for (let i = p.p0; i < p.p1; i++) { world.v[3 * i] -= mx; world.v[3 * i + 2] -= mz; world.v[3 * i + 1] += 3.6; }
       }
     }
     a.edgeY = y;
@@ -2389,7 +2408,7 @@ async function main() {
   const sw = $('swatches');
   for (const [k, v] of Object.entries(VARIETIES)) {
     const b = document.createElement('button'); b.className = 'swatch'; b.setAttribute('role', 'radio'); b.dataset.v = k; b.setAttribute('aria-checked', k === variety);
-    b.innerHTML = `<span class="chip"><svg viewBox="0 0 60 30" preserveAspectRatio="none"><path d="M0 30 A30 30 0 0 1 60 30Z" fill="${v.zest}" transform="translate(0 0) scale(1 1)"/><path d="M4 30 A26 26 0 0 1 56 30Z" fill="${v.pith}"/><path d="M8 30 A22 22 0 0 1 52 30Z" fill="${v.seg}"/><g stroke="${v.pith}" stroke-width="1.2"><path d="M30 30 L12.2 17.1M30 30 L23.2 9.1M30 30 L36.8 9.1M30 30 L47.8 17.1"/></g></svg></span><span class="swname">${v.name}</span>`;
+    b.innerHTML = `<span class="chip"><svg viewBox="0 0 60 30" preserveAspectRatio="none"><path d="M0 30 A30 30 0 0 1 60 30Z" fill="${v.zest}" transform="translate(0 0) scale(1 1)"/><path d="M4 30 A26 26 0 0 1 56 30Z" fill="${v.pith}"/><path d="M8 30 A22 22 0 0 1 52 30Z" fill="${v.body}"/><g stroke="${v.pith}" stroke-width="1.2"><path d="M30 30 L12.2 17.1M30 30 L23.2 9.1M30 30 L36.8 9.1M30 30 L47.8 17.1"/></g></svg></span><span class="swname">${v.name}</span>`;
     b.addEventListener('click', () => { variety = k; sw.querySelectorAll('.swatch').forEach(s => s.setAttribute('aria-checked', s.dataset.v === k)); });
     sw.appendChild(b);
   }
@@ -2404,7 +2423,7 @@ async function main() {
   function nudge() {
     const Rn = Math.random;
     world.pieces.forEach(p => {
-      const kick = [(Rn() - 0.5) * 0.8, 1.6 + Rn() * 0.8, (Rn() - 0.5) * 0.8], spin = (Rn() - 0.5) * 5;
+      const kick = [(Rn() - 0.5) * 1.6, 3.4 + Rn() * 1.4, (Rn() - 0.5) * 1.6], spin = (Rn() - 0.5) * 8;
       let cx = 0, cz = 0; for (let i = p.p0; i < p.p1; i++) { cx += world.x[3 * i]; cz += world.x[3 * i + 2]; } cx /= p.p1 - p.p0; cz /= p.p1 - p.p0;
       for (let i = p.p0; i < p.p1; i++) { world.v[3 * i] += kick[0] - spin * (world.x[3 * i + 2] - cz); world.v[3 * i + 1] += kick[1]; world.v[3 * i + 2] += kick[2] + spin * (world.x[3 * i] - cx); }
     });
@@ -2488,8 +2507,8 @@ async function main() {
     const v = VARIETIES[variety];
     R.setUniforms({
       viewProj, view, invViewProj: invVP, lightVP, heightVP,
-      cam: [...eye, simT], light: [...L, 1], sigSeg: v.sigSeg, sigZest: v.sigZest,
-      colZest: [...hexLin(v.zest), 1], colPith: [...hexLin(v.pith), 1], colSeg: [...hexLin(v.seg), 1], shadowTint: [...v.shadow, 1],
+      cam: [...eye, simT], light: [...L, 1], sigSeg: [...hexLin(v.body), v.density], sigZest: [...hexLin(v.rind), 1],
+      colZest: [...hexLin(v.zest), 1], colPith: [...hexLin(v.pith), 1], colSeg: [...hexLin(v.wall), 1], shadowTint: [...v.shadow, 1],
       bg: [...bgLin, 1.0], misc: [R.showMesh ? 1 : 0, 0, 0, 0],
     });
     R.render();
