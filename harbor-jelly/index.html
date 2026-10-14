@@ -1,0 +1,2519 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Harbor Jelly</title>
+<meta name="description" content="A container harbour set in a wobbly block of jelly sea, in real-time WebGPU: cranes work the feeder ship, a tug takes her out, gulls and fish go about their day.">
+<meta name="color-scheme" content="light">
+<link rel="icon" href="data:,">
+<style>
+  :root {
+    --bg: #E2DFDA; --ink: #1c1b19; --muted: #6d6962; --faint: #9a958c;
+    --line: rgba(28, 27, 25, 0.16); --line-strong: rgba(28, 27, 25, 0.42);
+    --accent: #b8432f; --live: #2f6f47;
+    --serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", "Hoefler Text", Georgia, serif;
+    --sans: "Helvetica Neue", Helvetica, "Segoe UI", system-ui, -apple-system, Arial, sans-serif;
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+    --gutter: clamp(18px, 2.6vw, 40px);
+    color-scheme: light;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); overflow: hidden; overscroll-behavior: none; }
+  body { font: 13px/1.45 var(--sans); -webkit-font-smoothing: antialiased; position: fixed; inset: 0; }
+  .masthead, .howto, .status, .stage { -webkit-user-select: none; user-select: none; }
+  button, input { font: inherit; color: inherit; }
+
+  .stage { position: fixed; inset: 0; }
+  canvas { display: block; width: 100%; height: 100%; touch-action: none; opacity: 0; transition: opacity .8s ease; outline: none; }
+  body.ready canvas { opacity: 1; }
+  canvas[data-cursor="grab"] { cursor: grab; }
+  canvas[data-cursor="grabbing"] { cursor: grabbing; }
+  canvas[data-cursor="orbit"] { cursor: move; }
+  canvas[data-cursor="wave"] { cursor: crosshair; }
+  canvas[data-cursor="tip"] { cursor: ns-resize; }
+  .fallback { position: absolute; inset: 0; display: grid; place-items: center; padding: var(--gutter); }
+  .fallback[hidden] { display: none; }
+  .fallback > div { max-width: 460px; border: 1px solid var(--line-strong); padding: 28px 28px 24px; background: var(--bg); }
+  .fallback h2 { font: italic 400 30px/1.1 var(--serif); margin: 10px 0 12px; }
+  .fallback p { margin: 0 0 10px; color: var(--muted); font-size: 13px; }
+
+  .kicker, .label { font: 500 10.5px/1 var(--sans); letter-spacing: .2em; text-transform: uppercase; color: var(--muted); }
+  .masthead { position: fixed; top: var(--gutter); left: var(--gutter); pointer-events: none; z-index: 2; }
+  .masthead h1 { font: italic 400 clamp(52px, 6.6vw, 108px)/.86 var(--serif); letter-spacing: -.025em; margin: 16px 0 16px; }
+  .masthead h1 span { display: block; }
+  .masthead h1 span + span { padding-left: .5em; }
+  .caption { font: 400 15px/1.5 var(--serif); color: var(--muted); margin: 0; }
+
+  .status { position: fixed; top: var(--gutter); right: var(--gutter); display: flex; align-items: center; gap: 9px; z-index: 3;
+    font: 500 10.5px/1 var(--mono); letter-spacing: .12em; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 7px 12px 7px 10px; background: rgba(226, 223, 218, .7);
+    -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); }
+  .status .dot { width: 7px; height: 7px; border-radius: 50%; border: 1px solid var(--muted); }
+  .status[data-state="live"] { color: var(--ink); }
+  .status[data-state="live"] .dot { background: var(--live); border-color: var(--live); animation: breathe 2.4s ease-in-out infinite; }
+  .status[data-state="paused"] .dot { background: transparent; border-color: var(--ink); }
+  .status[data-state="off"] .dot { background: var(--accent); border-color: var(--accent); }
+  @keyframes breathe { 50% { opacity: .35; } }
+
+  /* frosted control panel */
+  .panel { position: fixed; right: var(--gutter); top: calc(var(--gutter) + 46px); width: 276px; max-height: calc(100% - var(--gutter) * 2 - 56px); overflow-y: auto; overscroll-behavior: contain; z-index: 2;
+    border: 1px solid var(--line); background: rgba(232, 229, 224, .62); -webkit-backdrop-filter: blur(16px) saturate(1.1); backdrop-filter: blur(16px) saturate(1.1); padding: 16px 18px 14px; }
+  .panel > header { display: flex; justify-content: space-between; align-items: baseline; padding-bottom: 11px; border-bottom: 1px solid var(--line); }
+  .panel > header .fig { font: italic 13px/1 var(--serif); color: var(--muted); }
+  .sheet-toggle { display: none; }
+  .group { padding: 13px 0; border-bottom: 1px solid var(--line); }
+  .group:last-child { border-bottom: 0; padding-bottom: 2px; }
+  .shipline { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+  .shipline output { font: italic 16px/1.2 var(--serif); }
+  .meter { height: 3px; background: var(--line); margin: 9px 0 12px; overflow: hidden; }
+  .meter i { display: block; height: 100%; width: 0; background: var(--ink); transition: width .25s linear; }
+  .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .actions .btn.wide { grid-column: 1 / -1; }
+  .btn { border: 1px solid var(--line-strong); background: transparent; padding: 9px 10px; min-height: 36px; cursor: pointer; text-align: center; font-size: 12.5px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; }
+  .btn:hover:not(:disabled) { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+  .btn:disabled { opacity: .38; cursor: default; }
+  .btn.primary { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+  .btn.primary:hover:not(:disabled) { background: #000; }
+  .btn kbd { font: 10px/1 var(--mono); opacity: .55; }
+  .btn[aria-pressed="false"] { color: var(--muted); }
+  .tally { display: grid; grid-template-columns: repeat(3, 1fr); margin: 0; }
+  .tally > div + div { border-left: 1px solid var(--line); padding-left: 12px; }
+  .tally dt { margin-bottom: 7px; }
+  .tally dd { margin: 0; font: 20px/1 var(--mono); font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+  .swatches { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 10px; }
+  .swatch { background: none; border: 1px solid transparent; padding: 5px 5px 6px; cursor: pointer; text-align: left; }
+  .swatch .chip { display: block; height: 28px; border: 1px solid var(--line); overflow: hidden; }
+  .swatch .chip svg { display: block; width: 100%; height: 100%; }
+  .swname { display: block; margin-top: 6px; font: italic 13px/1.05 var(--serif); color: var(--muted); }
+  .swatch[aria-checked="true"] { border-color: var(--line-strong); }
+  .swatch[aria-checked="true"] .swname { color: var(--ink); }
+  .btn:focus-visible, .swatch:focus-visible, input[type=range]:focus-visible, .sheet-toggle:focus-visible { outline: 1px solid var(--ink); outline-offset: 2px; }
+  .slider + .slider { margin-top: 10px; }
+  .slider .row { display: flex; justify-content: space-between; align-items: baseline; }
+  .slider output { font: 12px/1 var(--mono); font-variant-numeric: tabular-nums; }
+  .slider .ends { display: flex; justify-content: space-between; font: italic 11.5px/1 var(--serif); color: var(--faint); margin-top: 1px; }
+  input[type=range] { -webkit-appearance: none; appearance: none; width: 100%; height: 22px; margin: 5px 0 0; background: transparent; cursor: pointer; }
+  input[type=range]::-webkit-slider-runnable-track { height: 1px; background: var(--line-strong); }
+  input[type=range]::-moz-range-track { height: 1px; background: var(--line-strong); }
+  input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 13px; height: 13px; margin-top: -6px; border-radius: 50%; background: var(--bg); border: 1px solid var(--ink); }
+  input[type=range]::-moz-range-thumb { width: 11px; height: 11px; border-radius: 50%; background: var(--bg); border: 1px solid var(--ink); }
+  .buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+
+  .howto { position: fixed; left: var(--gutter); bottom: var(--gutter); max-width: min(520px, calc(100% - 340px)); margin: 0; font: italic 14.5px/1.5 var(--serif); color: var(--ink); z-index: 2; }
+  .howto b { font: 500 10.5px/1 var(--sans); letter-spacing: .18em; text-transform: uppercase; color: var(--muted); margin-right: 8px; font-style: normal; }
+
+  /* phones: the panel becomes a bottom sheet */
+  @media (max-width: 760px), (max-height: 520px) and (max-width: 1000px) {
+    .masthead { top: 14px; left: 16px; }
+    .masthead h1 { font-size: clamp(40px, 12vw, 64px); margin: 10px 0 8px; }
+    .caption { display: none; }
+    .status { top: 14px; right: 14px; }
+    .howto { display: none; }
+    .panel { left: 0; right: 0; top: auto; bottom: 0; width: auto; max-height: 64%; border-width: 1px 0 0; padding: 0 16px calc(12px + env(safe-area-inset-bottom)); }
+    .panel > header { position: sticky; top: 0; z-index: 1; padding: 0; border-bottom: 0; background: transparent; }
+    .sheet-toggle { display: flex; width: 100%; align-items: center; justify-content: space-between; gap: 10px; border: 0; background: none; padding: 12px 0 10px; cursor: pointer; text-align: left; }
+    .sheet-toggle::before { content: ""; position: absolute; left: 50%; top: 5px; width: 36px; height: 3px; border-radius: 2px; background: var(--line-strong); transform: translateX(-50%); }
+    .sheet-toggle .label { color: var(--ink); }
+    .sheet-toggle .peek { font: italic 14px/1 var(--serif); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .panel > header > .label, .panel > header .fig { display: none; }
+    .panel .more { display: none; }
+    .panel.open .more { display: block; }
+    .group:first-of-type { padding-top: 4px; }
+  }
+  @media (prefers-reduced-motion: reduce) { canvas, .meter i { transition: none; } .status .dot { animation: none !important; } }
+</style>
+</head>
+<body>
+<header class="masthead">
+  <div class="kicker">Material Studies / No. 013</div>
+  <h1><span>Harbor</span><span>Jelly.</span></h1>
+  <p class="caption">A working harbour,<br>set in a block of sea.<br>Mind the wobble.</p>
+</header>
+<div class="status" id="status" data-state="boot" role="status"><span class="dot"></span><span id="statusText">WebGPU · Starting</span></div>
+
+<div class="stage" id="stage">
+  <canvas id="gl" tabindex="0" aria-label="A container harbour inside a block of jelly sea. Drag the water to make waves, drag a side of the block to tip it, pick up and throw a lifebuoy, drag empty space to look around." data-cursor="orbit"></canvas>
+  <div class="fallback" id="fallback" hidden>
+    <div>
+      <div class="kicker" id="fbKicker">Renderer offline</div>
+      <h2 id="fbTitle">This harbour needs WebGPU.</h2>
+      <p id="fbBody">Your browser didn't offer a WebGPU device, so the jelly sea can't be drawn here.</p>
+      <p>Try a recent Chrome or Edge on desktop or Android, or Safari 26+. Turning on hardware acceleration in the browser settings also helps.</p>
+    </div>
+  </div>
+</div>
+
+<p class="howto" id="howto"><b>How to play</b>Drag the water to make waves, drag a side of the block to tip it, pick up a lifebuoy and throw it. Drag empty space to look around, scroll to zoom. Space sounds the horn.</p>
+
+<aside class="panel" id="panel" aria-label="Harbour controls">
+  <header>
+    <button class="sheet-toggle" id="sheetToggle" aria-expanded="false" aria-controls="panelMore"><span class="label">The Harbour</span><span class="peek" id="peek">Unloading</span></button>
+    <span class="label">The Harbour</span><span class="fig">fig. 13</span>
+  </header>
+  <div class="group">
+    <div class="shipline"><span class="label">The ship's day</span><output id="shipStatus" aria-live="polite">–</output></div>
+    <div class="meter" title="Harbour activity" role="meter" aria-label="Harbour activity" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="meterWrap"><i id="meter"></i></div>
+    <div class="actions">
+      <button class="btn primary wide" id="castOff">Cast off</button>
+      <button class="btn" id="horn">Horn <kbd>Space</kbd></button>
+      <button class="btn" id="feed">Feed the fish</button>
+    </div>
+  </div>
+  <div class="more" id="panelMore">
+    <div class="group">
+      <dl class="tally">
+        <div><dt class="label">Boxes moved</dt><dd id="tBoxes">0</dd></div>
+        <div><dt class="label">Voyages</dt><dd id="tVoyages">0</dd></div>
+        <div><dt class="label">Fed</dt><dd id="tFed">0</dd></div>
+      </dl>
+    </div>
+    <div class="group">
+      <div class="label">Flavour</div>
+      <div class="swatches" role="radiogroup" aria-label="Flavour" id="swatches"></div>
+    </div>
+    <div class="group">
+      <div class="slider">
+        <div class="row"><label class="label" for="firm">Firmness</label><output id="firmOut">0.50</output></div>
+        <input type="range" id="firm" min="0" max="1" step="0.01" value="0.5">
+        <div class="ends"><span>wobbly</span><span>set</span></div>
+      </div>
+      <div class="slider">
+        <div class="row"><label class="label" for="damp">Wave damping</label><output id="dampOut">0.35</output></div>
+        <input type="range" id="damp" min="0.05" max="1.5" step="0.01" value="0.35">
+        <div class="ends"><span>lively</span><span>calm</span></div>
+      </div>
+      <div class="slider">
+        <div class="row"><label class="label" for="tide">Tide</label><output id="tideOut">0 cm</output></div>
+        <input type="range" id="tide" min="-10" max="10" step="0.5" value="0">
+        <div class="ends"><span>low water</span><span>high water</span></div>
+      </div>
+    </div>
+    <div class="group">
+      <div class="buttons">
+        <button class="btn" id="reset">Reset</button>
+        <button class="btn" id="pause">Pause</button>
+        <button class="btn" id="sound" aria-pressed="true">Sound on</button>
+        <button class="btn" id="resetView">Reset view</button>
+      </div>
+    </div>
+  </div>
+</aside>
+<script type="module">
+/* @core-begin */
+// ═══════════════════════════════ Harbor Jelly · core (pure JS: layout, sea, choreography, life) ═══════════════════════════════
+// World: the block spans x,z ∈ [−2.6, 2.6]; y up; the still sea surface is at y = level (tide); +z faces the camera.
+const HB = {
+  half: 2.6, floor: -0.86, bottom: -1.25, quayZ: -1.05, deckY: 0.24, fishY: 0.2, splitX: 0.35, hillZ: -2.1,
+  g: 3.4, N: 104,
+  ship: { L: 1.6, B: 0.36, draft: 0.12, berth: { x: -1.05, z: -0.82, yaw: 0 }, departYaw: 0.46, standby: { x: -1.05, z: -0.34, yaw: 0 } },
+  tug: { L: 0.42, B: 0.17, draft: 0.08, home: { x: 0.82, z: -0.72, yaw: Math.PI }, standby: { x: -0.25, z: 0.36, yaw: Math.PI } },
+  pier: { x0: 1.43, x1: 1.67, z0: -1.05, z1: 0.16, y: 0.13 },
+  bw: { a: [2.8, 0.58], b: [1.1, 0.9], r: 0.27, crest: 0.17 },
+  light: [1.1, 0.9],
+  yachts: [{ m: [-1.22, 1.02], r: 0.13, phase: 0.3 }, { m: [-0.45, 1.25], r: 0.13, phase: 2.1 }],
+  channelBuoy: [1.02, 1.72],
+  boats: [{ x: 1.3, z: -0.5, yaw: -Math.PI / 2 }, { x: 1.8, z: -0.3, yaw: Math.PI / 2 }],
+  crane: { railW: -1.17, railL: -1.55, legW: 0.36, girderY: 0.9, apexY: 1.36, boomTip: 0.1, backZ: -2.1, clearY: 0.72, parkZ: -1.95 },
+  box: { L: 0.2, W: 0.082, H: 0.086 },
+  yard: { x0: -2.36, dx: 0.235, cols: 11, z0: -1.67, dz: 0.094, rows: 5 },
+  shipSlots: { bays: 6, rows: 4, tiers: 2, bayX0: -0.48, bayDX: 0.205, rowDZ: 0.088, deckY: 0.105 },
+};
+const OBJ = { ship: 1, radar: 2, prop: 3, tug: 4, tugProp: 5, lamp: 6, craneA: 7, craneB: 11, yacht: 15, boat: 17, buoy: 19, lifebuoy: 22, count: 25 };
+const LIVERIES = ['#c8402f', '#2f5f9e', '#e0a326', '#3f8a5a', '#8c3a6e', '#d9d4c7', '#2d8f95', '#e06a2c', '#55626e', '#a33a3a'];
+
+function rng(seed) { let a = seed >>> 0; return () => { a = (a + 0x6D2B79F5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+const lerp = (a, b, t) => a + (b - a) * t;
+const smooth = t => { t = clamp(t, 0, 1); return t * t * (3 - 2 * t); };
+const wrapA = a => { while (a > Math.PI) a -= 2 * Math.PI; while (a < -Math.PI) a += 2 * Math.PI; return a; };
+function hash2(x, z) { const s = Math.sin(x * 127.1 + z * 311.7) * 43758.5453; return s - Math.floor(s); }
+function vnoise(x, z) { const i = Math.floor(x), j = Math.floor(z), fx = x - i, fz = z - j, u = fx * fx * (3 - 2 * fx), v = fz * fz * (3 - 2 * fz); return lerp(lerp(hash2(i, j), hash2(i + 1, j), u), lerp(hash2(i, j + 1), hash2(i + 1, j + 1), u), v); }
+function segDist(px, pz, a, b) { const ex = b[0] - a[0], ez = b[1] - a[1], t = clamp(((px - a[0]) * ex + (pz - a[1]) * ez) / (ex * ex + ez * ez), 0, 1); return [Math.hypot(px - a[0] - ex * t, pz - a[1] - ez * t), t]; }
+
+// ── terrain: quays, hill, sea floor, breakwater mound ──
+function groundH(x, z) {
+  if (z < HB.quayZ) {
+    const base = x < HB.splitX ? HB.deckY : HB.fishY;
+    if (z < HB.hillZ) { const d = HB.hillZ - z; return base + d * 1.25 + 0.03 * vnoise(x * 4, z * 4); }
+    return base;
+  }
+  let y = HB.floor + 0.035 * (vnoise(x * 1.7 + 3, z * 1.7) - 0.5) - 0.03 * smooth((z + 0.6) / 2.2);
+  // a gentle shelf along the fishing quay
+  if (x > 0.5) y += 0.08 * smooth((-z - 0.55) / 0.45);
+  // rubble breakwater: a mound around its crest line, a round head under the lighthouse
+  const [d] = segDist(x, z, HB.bw.a, HB.bw.b);
+  const mound = HB.bw.crest - 1.05 * Math.max(0, d - 0.1) + 0.02 * (vnoise(x * 9, z * 9) - 0.5);
+  return Math.max(y, mound);
+}
+const isLand = (x, z, level) => groundH(x, z) > level - 0.005;
+
+// ── the town, quay furniture and other static layout (shared by geometry, perches and collisions) ──
+function makeLayout(seed = 7) {
+  const R = rng(seed), houses = [], trees = [], lamps = [], buildings = [];
+  const colors = ['#8e2b22', '#d39b35', '#efe9dd', '#9ab9d2', '#a9d1b9', '#e8b4b8', '#8e2b22', '#d39b35', '#efe9dd'];
+  const rows = [{ z: -2.22, n: 22 }, { z: -2.37, n: 20 }, { z: -2.51, n: 18 }];
+  rows.forEach((row, ri) => {
+    let x = -2.48 + R() * 0.06;
+    while (x < 2.45) {
+      const w = 0.12 + R() * 0.07, d = 0.1 + R() * 0.03;
+      if (x > 1.0 && x < 1.46 && ri === 1) { x = 1.48; continue; } // church plot
+      const cx = x + w / 2, cz = row.z + (R() - 0.5) * 0.02, gy = Math.min(groundH(cx - w / 2, cz + d / 2), groundH(cx + w / 2, cz + d / 2));
+      const h = 0.1 + R() * 0.06, roof = 0.05 + R() * 0.03;
+      houses.push({ x: cx, z: cz, w, d, h, roof, y: gy, color: colors[(R() * colors.length) | 0], slate: R() < 0.35, chimney: R() < 0.7, door: R() });
+      x += w + 0.015 + R() * 0.035;
+      if (R() < 0.18) { trees.push({ x: x + 0.02, z: cz + 0.06 + R() * 0.03, r: 0.045 + R() * 0.03 }); x += 0.06; }
+    }
+  });
+  const church = { x: 1.24, z: -2.36, w: 0.2, d: 0.34, h: 0.2, spire: 0.5 };
+  church.y = groundH(church.x, church.z + 0.12);
+  for (let i = 0; i < 14; i++) { const x = -2.4 + R() * 4.8, z = -2.12 - R() * 0.45; trees.push({ x, z, r: 0.04 + R() * 0.04 }); }
+  for (const t of trees) t.y = groundH(t.x, t.z);
+  for (const x of [0.55, 0.95, 1.3, 2.05, 2.45]) lamps.push({ x, z: -1.12, y: HB.fishY, h: 0.26 });
+  lamps.push({ x: 1.55, z: 0.11, y: HB.pier.y, h: 0.22 });
+  const towers = [{ x: -2.45, z: -2.0, h: 0.85 }, { x: 0.22, z: -2.02, h: 0.85 }];
+  const office = { x: -2.46, z: -1.3, w: 0.2, d: 0.26, h: 0.2 };
+  const shed = { x: 0.92, z: -1.6, w: 0.72, d: 0.4, h: 0.16, roof: 0.1 };
+  buildings.push(office, shed, { x: church.x, z: church.z, w: church.w, d: church.d, h: church.h });
+  for (const h of houses) buildings.push(h);
+  return { houses, church, trees, lamps, towers, office, shed, buildings };
+}
+
+// ═══════════════════════════════ the jelly sea: linear shallow water on a staggered grid ═══════════════════════════════
+class Sea {
+  constructor(N = HB.N) {
+    this.N = N; this.dx = 2 * HB.half / N;
+    this.h = new Float32Array(N * N); this.u = new Float32Array((N + 1) * N); this.v = new Float32Array(N * (N + 1));
+    this.D = new Float32Array(N * N); this.P = new Float32Array(N * N); this.foam = new Float32Array(N * N); this.lap = new Float32Array(N * N);
+    this.g = HB.g; this.tension = 0.0007; this.damping = 0.35; this.level = 0;
+    this.setLevel(0);
+  }
+  cx(i) { return -HB.half + (i + 0.5) * this.dx; }
+  setLevel(level) {
+    this.level = level; const N = this.N;
+    for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) { const d = level - groundH(this.cx(i), this.cx(j)); this.D[i + j * N] = d > 0.01 ? d : 0; }
+  }
+  step(dt, ax = 0, az = 0) {
+    const { N, dx, h, u, v, D, P, lap } = this, g = this.g, k = Math.exp(-this.damping * dt), ten = this.tension;
+    for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+      const c = i + j * N; if (!D[c]) { lap[c] = 0; continue; }
+      const l = i > 0 && D[c - 1] ? h[c - 1] : h[c], r = i < N - 1 && D[c + 1] ? h[c + 1] : h[c], d = j > 0 && D[c - N] ? h[c - N] : h[c], t = j < N - 1 && D[c + N] ? h[c + N] : h[c];
+      lap[c] = (l + r + d + t - 4 * h[c]) / (dx * dx);
+    }
+    const eta = c => h[c] + P[c] - ten * lap[c];
+    // momentum on faces (closed at dry cells and the block walls)
+    for (let j = 0; j < N; j++) for (let i = 1; i < N; i++) {
+      const a = i - 1 + j * N, b = a + 1, f = i + j * (N + 1);
+      if (!D[a] || !D[b]) { u[f] = 0; continue; }
+      u[f] = (u[f] - dt * (g * (eta(b) - eta(a)) / dx - ax)) * k;
+    }
+    for (let j = 1; j < N; j++) for (let i = 0; i < N; i++) {
+      const a = i + (j - 1) * N, b = a + N, f = i + j * N;
+      if (!D[a] || !D[b]) { v[f] = 0; continue; }
+      v[f] = (v[f] - dt * (g * (eta(b) - eta(a)) / dx - az)) * k;
+    }
+    // continuity
+    for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+      const c = i + j * N; if (!D[c]) { h[c] = 0; continue; }
+      const Dl = i > 0 ? Math.min(D[c], D[c - 1]) : 0, Dr = i < N - 1 ? Math.min(D[c], D[c + 1]) : 0, Dd = j > 0 ? Math.min(D[c], D[c - N]) : 0, Dt = j < N - 1 ? Math.min(D[c], D[c + N]) : 0;
+      const div = (Dr * u[i + 1 + j * (N + 1)] - Dl * u[i + j * (N + 1)] + Dt * v[i + (j + 1) * N] - Dd * v[c]) / dx;
+      h[c] = clamp(h[c] - dt * div, -0.2, 0.2);
+      this.foam[c] *= Math.exp(-0.55 * dt);
+    }
+  }
+  idx(x, z) { const N = this.N, i = clamp(Math.floor((x + HB.half) / this.dx), 0, N - 1), j = clamp(Math.floor((z + HB.half) / this.dx), 0, N - 1); return i + j * N; }
+  height(x, z) {
+    const N = this.N, fx = clamp((x + HB.half) / this.dx - 0.5, 0, N - 1.001), fz = clamp((z + HB.half) / this.dx - 0.5, 0, N - 1.001);
+    const i = fx | 0, j = fz | 0, tx = fx - i, tz = fz - j, c = i + j * N, h = this.h;
+    return lerp(lerp(h[c], h[c + 1], tx), lerp(h[c + N], h[c + N + 1], tx), tz);
+  }
+  vel(x, z) {
+    const N = this.N, i = clamp(Math.floor((x + HB.half) / this.dx), 0, N - 1), j = clamp(Math.floor((z + HB.half) / this.dx), 0, N - 1);
+    return [(this.u[i + j * (N + 1)] + this.u[i + 1 + j * (N + 1)]) / 2, (this.v[i + j * N] + this.v[i + (j + 1) * N]) / 2];
+  }
+  // a smooth bump of water (positive) or a dimple (negative)
+  drop(x, z, r, amp, foam = 0) {
+    const N = this.N, dx = this.dx, i0 = Math.max(0, Math.floor((x - r + HB.half) / dx)), i1 = Math.min(N - 1, Math.ceil((x + r + HB.half) / dx)), j0 = Math.max(0, Math.floor((z - r + HB.half) / dx)), j1 = Math.min(N - 1, Math.ceil((z + r + HB.half) / dx));
+    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+      const c = i + j * N; if (!this.D[c]) continue;
+      const d = Math.hypot(this.cx(i) - x, this.cx(j) - z) / r; if (d >= 1) continue;
+      const w = 0.5 + 0.5 * Math.cos(Math.PI * d);
+      this.h[c] += amp * w; if (foam) this.foam[c] = Math.min(1, this.foam[c] + foam * w);
+    }
+  }
+  push(x, z, r, vx, vz) {
+    const N = this.N, dx = this.dx, i0 = Math.max(1, Math.floor((x - r + HB.half) / dx)), i1 = Math.min(N - 1, Math.ceil((x + r + HB.half) / dx)), j0 = Math.max(1, Math.floor((z - r + HB.half) / dx)), j1 = Math.min(N - 1, Math.ceil((z + r + HB.half) / dx));
+    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+      const d = Math.hypot(this.cx(i) - x, this.cx(j) - z) / r; if (d >= 1) continue; const w = (1 - d) * (1 - d);
+      this.u[i + j * (N + 1)] += vx * w; this.v[i + j * N] += vz * w;
+    }
+  }
+  // the pressure of a hull (an oriented ellipse) – the water flows away from it, giving bow waves and wakes
+  stampHull(p, L, B, depth, speed, foam) {
+    const N = this.N, dx = this.dx, c = Math.cos(p.yaw), s = Math.sin(p.yaw), rr = L / 2 + 0.1;
+    const i0 = Math.max(0, Math.floor((p.x - rr + HB.half) / dx)), i1 = Math.min(N - 1, Math.ceil((p.x + rr + HB.half) / dx)), j0 = Math.max(0, Math.floor((p.z - rr + HB.half) / dx)), j1 = Math.min(N - 1, Math.ceil((p.z + rr + HB.half) / dx));
+    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+      const k = i + j * N; if (!this.D[k]) continue;
+      const rx = this.cx(i) - p.x, rz = this.cx(j) - p.z, a = (rx * c + rz * s) / (L / 2), b = (-rx * s + rz * c) / (B / 2), e = a * a + b * b;
+      if (e >= 1.6) continue;
+      this.P[k] += depth * Math.max(0, 1 - e / 1.6) ** 1.5;
+      if (foam > 0 && speed > 0.03) {
+        const bow = a > 0.7 && e < 1.5, stern = a < -0.85 && Math.abs(b) < 0.9;
+        if (bow || stern) this.foam[k] = Math.min(1, this.foam[k] + foam * speed * (stern ? 0.22 : 0.3));
+      }
+    }
+  }
+}
+
+// ═══════════════════════════════ hulls and the collision world ═══════════════════════════════
+function obbCorners(p, L, B) {
+  const c = Math.cos(p.yaw), s = Math.sin(p.yaw), pts = [];
+  for (const [a, b] of [[1, 1], [1, -1], [-1, -1], [-1, 1]]) pts.push([p.x + c * a * L / 2 - s * b * B / 2, p.z + s * a * L / 2 + c * b * B / 2]);
+  return pts;
+}
+// points round the hull outline (with a pointed bow) for clearance checks
+function hullPoints(p, L, B, n = 14) {
+  const c = Math.cos(p.yaw), s = Math.sin(p.yaw), pts = [];
+  for (let k = 0; k <= n; k++) {
+    const a = -L / 2 + L * k / n, taper = a > L / 2 - L * 0.18 ? Math.max(0.15, (L / 2 - a) / (L * 0.18)) : 1;
+    for (const sb of [-1, 1]) { const b = sb * B / 2 * taper; pts.push([p.x + c * a - s * b, p.z + s * a + c * b]); }
+  }
+  return pts;
+}
+function obbOverlap(p, L1, B1, q, L2, B2) { // separating axis test in xz
+  const A = obbCorners(p, L1, B1), Bc = obbCorners(q, L2, B2);
+  for (const yaw of [p.yaw, p.yaw + Math.PI / 2, q.yaw, q.yaw + Math.PI / 2]) {
+    const ax = Math.cos(yaw), az = Math.sin(yaw);
+    let a0 = Infinity, a1 = -Infinity, b0 = Infinity, b1 = -Infinity;
+    for (const [x, z] of A) { const d = x * ax + z * az; a0 = Math.min(a0, d); a1 = Math.max(a1, d); }
+    for (const [x, z] of Bc) { const d = x * ax + z * az; b0 = Math.min(b0, d); b1 = Math.max(b1, d); }
+    if (a1 < b0 || b1 < a0) return false;
+  }
+  return true;
+}
+function inObb(x, z, p, L, B, pad = 0) { const c = Math.cos(p.yaw), s = Math.sin(p.yaw), rx = x - p.x, rz = z - p.z, a = rx * c + rz * s, b = -rx * s + rz * c; return Math.abs(a) < L / 2 + pad && Math.abs(b) < B / 2 + pad ? [a, b] : null; }
+// what a hull point may not touch: returns a reason or null
+function clearance(x, z, level, draft, ignore = {}) {
+  if (Math.abs(x) > HB.half - 0.04 || Math.abs(z) > HB.half - 0.04) return 'block edge';
+  if (z < HB.quayZ + 0.012) return 'quay';
+  const P = HB.pier; if (x > P.x0 - 0.01 && x < P.x1 + 0.01 && z < P.z1 + 0.01) return 'pier';
+  for (const b of HB.boats) if (inObb(x, z, b, 0.32, 0.12, 0.02)) return 'fishing boat';
+  if (segDist(x, z, HB.bw.a, HB.bw.b)[0] < HB.bw.r) return 'breakwater';
+  if (!ignore.yachts) for (const y of HB.yachts) if (Math.hypot(x - y.m[0], z - y.m[1]) < y.r + 0.19) return 'yacht';
+  if (Math.hypot(x - HB.channelBuoy[0], z - HB.channelBuoy[1]) < 0.1) return 'channel buoy';
+  if (groundH(x, z) > level - draft - 0.03) return 'aground';
+  return null;
+}
+
+// ═══════════════════════════════ paths ═══════════════════════════════
+// centripetal Catmull–Rom through points, resampled by arc length
+function makePath(pts, step = 0.01) {
+  const P = pts.map(p => [p[0], p[1]]), n = P.length, ext = [[2 * P[0][0] - P[1][0], 2 * P[0][1] - P[1][1]], ...P, [2 * P[n - 1][0] - P[n - 2][0], 2 * P[n - 1][1] - P[n - 2][1]]];
+  const dense = [];
+  for (let i = 0; i < n - 1; i++) {
+    const p0 = ext[i], p1 = ext[i + 1], p2 = ext[i + 2], p3 = ext[i + 3];
+    const t01 = Math.hypot(p1[0] - p0[0], p1[1] - p0[1]) ** 0.5, t12 = Math.hypot(p2[0] - p1[0], p2[1] - p1[1]) ** 0.5, t23 = Math.hypot(p3[0] - p2[0], p3[1] - p2[1]) ** 0.5;
+    for (let k = 0; k < 40; k++) {
+      const t = k / 40, out = [0, 0];
+      for (let d = 0; d < 2; d++) {
+        const m1 = (p2[d] - p1[d] + t12 * ((p1[d] - p0[d]) / t01 - (p2[d] - p0[d]) / (t01 + t12))), m2 = (p2[d] - p1[d] + t12 * ((p3[d] - p2[d]) / t23 - (p3[d] - p1[d]) / (t12 + t23)));
+        const a = 2 * (p1[d] - p2[d]) + m1 + m2, b = -3 * (p1[d] - p2[d]) - 2 * m1 - m2;
+        out[d] = a * t * t * t + b * t * t + m1 * t + p1[d];
+      }
+      dense.push(out);
+    }
+  }
+  dense.push(P[n - 1]);
+  const cum = [0]; for (let i = 1; i < dense.length; i++) cum.push(cum[i - 1] + Math.hypot(dense[i][0] - dense[i - 1][0], dense[i][1] - dense[i - 1][1]));
+  const L = cum[cum.length - 1];
+  return {
+    length: L,
+    at(s) { // → {x, z, yaw}
+      s = clamp(s, 0, L); let lo = 0, hi = cum.length - 1;
+      while (hi - lo > 1) { const m = (lo + hi) >> 1; if (cum[m] < s) lo = m; else hi = m; }
+      const t = (s - cum[lo]) / Math.max(1e-9, cum[hi] - cum[lo]), a = dense[lo], b = dense[hi];
+      const j0 = Math.max(0, lo - 2), j1 = Math.min(dense.length - 1, hi + 2);
+      return { x: lerp(a[0], b[0], t), z: lerp(a[1], b[1], t), yaw: Math.atan2(dense[j1][1] - dense[j0][1], dense[j1][0] - dense[j0][0]) };
+    },
+  };
+}
+// towing off: the ship pivots on her stern-quarter fender while the tug pulls the bow out
+function towPose(k) {
+  const S = HB.ship, b = S.berth, px = b.x - S.L / 2, pz = b.z - S.B / 2, yaw = S.departYaw * k, c = Math.cos(yaw), s = Math.sin(yaw);
+  const lx = -S.L / 2, lz = -S.B / 2; // the pivot corner, in ship coordinates
+  return { x: px - (lx * c - lz * s), z: pz - (lx * s + lz * c), yaw };
+}
+HB.ship.depart = towPose(1);
+const LAP = [[HB.ship.depart.x, HB.ship.depart.z], [-0.35, -0.05], [0.02, 0.45], [0.14, 1.12], [-0.06, 1.74], [-0.45, 2.02], [-1.3, 2.05], [-1.95, 1.7], [-2.12, 1.0], [-1.95, 0.25], [-1.55, -0.22], [-1.2, -0.33], [HB.ship.standby.x, HB.ship.standby.z]];
+
+// ═══════════════════════════════ quaternions ═══════════════════════════════
+function quatYPR(yaw, pitch = 0, roll = 0) { // heading yaw about −y (so yaw turns +x toward +z), then pitch about z, roll about x
+  const hy = -yaw / 2, hp = pitch / 2, hr = roll / 2;
+  const qy = [0, Math.sin(hy), 0, Math.cos(hy)], qp = [0, 0, Math.sin(hp), Math.cos(hp)], qr = [Math.sin(hr), 0, 0, Math.cos(hr)];
+  return qmul(qmul(qy, qp), qr);
+}
+function qmul(a, b) { return [a[3] * b[0] + a[0] * b[3] + a[1] * b[2] - a[2] * b[1], a[3] * b[1] - a[0] * b[2] + a[1] * b[3] + a[2] * b[0], a[3] * b[2] + a[0] * b[1] - a[1] * b[0] + a[2] * b[3], a[3] * b[3] - a[0] * b[0] - a[1] * b[1] - a[2] * b[2]]; }
+function qrot(q, v) { const [x, y, z, w] = q, ix = w * v[0] + y * v[2] - z * v[1], iy = w * v[1] + z * v[0] - x * v[2], iz = w * v[2] + x * v[1] - y * v[0], iw = -x * v[0] - y * v[1] - z * v[2]; return [ix * w + iw * -x + iy * -z - iz * -y, iy * w + iw * -y + iz * -x - ix * -z, iz * w + iw * -z + ix * -y - iy * -x]; }
+function qaxis(ax, ang) { const s = Math.sin(ang / 2); return [ax[0] * s, ax[1] * s, ax[2] * s, Math.cos(ang / 2)]; }
+const toWorld = (o, v) => { const r = qrot(o.q, v); return [o.p[0] + r[0], o.p[1] + r[1], o.p[2] + r[2]]; };
+
+// ═══════════════════════════════ the harbour ═══════════════════════════════
+const PHASE_TEXT = { work: '', boomsUp: 'Booms up', tugComing: 'Tug coming', castOff: 'Casting off', atSea: 'At sea', comingIn: 'Coming in', berthing: 'Berthing', boomsDown: 'Booms down' };
+class Harbor {
+  constructor(seed = 11, opts = {}) {
+    this.R = rng(seed); this.layout = makeLayout(7); this.sea = new Sea(opts.N || HB.N); this.level = 0; this.t = 0;
+    this.lap = makePath(LAP);
+    this.objects = Array.from({ length: OBJ.count }, () => ({ p: [0, 0, 0], q: [0, 0, 0, 1] }));
+    this.tally = { boxes: 0, voyages: 0, fed: 0 };
+    this.events = []; this.log = [];
+    this.initBoxes();
+    this.ship = { pose: { ...HB.ship.berth }, y: 0, pitch: 0, roll: 0, vy: 0, vp: 0, vr: 0, speed: 0, s: 0, hurry: false, prop: 0, radar: 0, horn: 0 };
+    this.tug = { pose: { ...HB.tug.home }, y: 0, pitch: 0, roll: 0, vy: 0, vp: 0, vr: 0, speed: 0, queue: [], line: 0, wash: 0, prop: 0 };
+    this.cranes = [0, 1].map(c => ({ id: c, x: c ? -0.6 : -1.45, boom: 0, trolley: HB.crane.parkZ, hoist: HB.crane.clearY, box: -1, queue: [], move: null, phase: 'idle', timer: 0, busy: 0 }));
+    this.yachts = HB.yachts.map(y => ({ ...y, ang: y.phase, pose: { x: y.m[0], z: y.m[1], yaw: 0 }, y: 0, pitch: 0, roll: 0 }));
+    this.phase = 'work'; this.phaseT = 0; this.castEarly = false;
+    this.planCall();
+    this.initLife();
+    this.updateObjects();
+  }
+  // ── containers ──
+  initBoxes() {
+    const R = this.R, Y = HB.yard, S = HB.shipSlots;
+    this.boxes = []; this.yard = []; this.shipStacks = [];
+    const box = (state) => { const b = { id: this.boxes.length, livery: (R() * LIVERIES.length) | 0, ...state }; this.boxes.push(b); return b.id; };
+    for (let c = 0; c < Y.cols; c++) for (let r = 0; r < Y.rows; r++) {
+      const work = [2, 3, 4, 7, 8, 9].includes(c), n = work ? 1 + ((R() * 3) | 0) : 1 + ((R() * 4) | 0);
+      const st = []; for (let t = 0; t < n; t++) st.push(box({ at: 'yard' })); this.yard.push(st);
+    }
+    for (let b = 0; b < S.bays; b++) for (let r = 0; r < S.rows; r++) { const st = []; for (let t = 0; t < S.tiers; t++) st.push(box({ at: 'ship' })); this.shipStacks.push(st); }
+    // extra still life: a few long rows by the office and the rails' ends
+    this.extra = [];
+  }
+  yardSlot(c, r, t) { const Y = HB.yard; return [Y.x0 + c * Y.dx, HB.deckY + t * HB.box.H, Y.z0 - r * Y.dz]; }
+  shipLocal(b, r, t) { const S = HB.shipSlots; return [S.bayX0 + b * S.bayDX, S.deckY + t * HB.box.H, (r - 1.5) * S.rowDZ]; }
+  // the port call: four boxes off and four on for each crane, from its own bays to its own yard columns
+  planCall() {
+    const R = this.R, S = HB.shipSlots, plan = [[0, 1], [4, 5]], cols = [[2, 3, 4], [7, 8, 9]];
+    this.call = { unloadTotal: 8, loadTotal: 8, unloaded: 0, loaded: 0 };
+    this.cranes.forEach((cr, ci) => {
+      const stacks = []; for (const b of plan[ci]) for (let r = 0; r < S.rows; r++) stacks.push([b, r]);
+      stacks.sort(() => R() - 0.5); const pick = stacks.slice(0, 4);
+      cr.queue = [];
+      for (const [b, r] of pick) cr.queue.push({ kind: 'unload', from: { ship: [b, r] }, to: { yardCols: cols[ci] } });
+      for (const [b, r] of pick) cr.queue.push({ kind: 'load', from: { yardCols: cols[ci] }, to: { ship: [b, r] } });
+    });
+  }
+  // world position of the top of a stack (where a spreader lands)
+  stackTop(ref) {
+    if (ref.ship) { const [b, r] = ref.ship, st = this.shipStacks[b * HB.shipSlots.rows + r]; const loc = this.shipLocal(b, r, st.length); return toWorld(this.objects[OBJ.ship], loc); }
+    const [c, r] = ref.yard, st = this.yard[c * HB.yard.rows + r]; return this.yardSlot(c, r, st.length);
+  }
+  chooseYard(cols, wantBox) { // a yard stack in this crane's columns: with a box to take, or with room for one
+    let best = null;
+    for (const c of cols) for (let r = 0; r < HB.yard.rows; r++) {
+      const n = this.yard[c * HB.yard.rows + r].length;
+      if (wantBox ? n < 1 : n >= 4) continue;
+      const score = (wantBox ? -n : n) + this.R() * 0.5;
+      if (!best || score < best.score) best = { c, r, score };
+    }
+    return best && [best.c, best.r];
+  }
+  // ── cranes ──
+  stepCranes(dt) {
+    const C = HB.crane, working = this.phase === 'work';
+    const boomTarget = this.phase === 'boomsUp' || this.phase === 'tugComing' || this.phase === 'castOff' || this.phase === 'atSea' || this.phase === 'comingIn' || this.phase === 'berthing' ? 1.35 : 0;
+    for (const cr of this.cranes) {
+      const other = this.cranes[1 - cr.id];
+      if (cr.phase === 'idle' && working && !this.castEarly && cr.queue.length && cr.boom < 0.01) this.beginMove(cr);
+      if (cr.phase === 'idle') {
+        // park: trolley to the backreach, spreader up, boom as the phase wants
+        cr.trolley = approach(cr.trolley, C.parkZ, 0.9 * dt); cr.hoist = approach(cr.hoist, C.clearY, 0.5 * dt);
+        if (Math.abs(cr.trolley - C.parkZ) < 0.01) cr.boom = approach(cr.boom, boomTarget, 0.55 * dt);
+        // an idle crane moves out of the other's way
+        if (other.phase !== 'idle' && Math.abs(cr.x - other.target) < C.legW + 0.08) cr.x = approach(cr.x, other.target + Math.sign(cr.x - other.target || (cr.id ? 1 : -1)) * (C.legW + 0.1), 0.3 * dt);
+        cr.busy = approach(cr.busy, 0, dt);
+        continue;
+      }
+      cr.busy = approach(cr.busy, 1, dt * 2);
+      this.runMove(cr, other, dt);
+    }
+  }
+  beginMove(cr) {
+    const m = cr.queue.shift();
+    let from = m.from, to = m.to;
+    if (from.yardCols) { const y = this.chooseYard(from.yardCols, true); if (!y) return; from = { yard: y }; }
+    if (to.yardCols) { const y = this.chooseYard(to.yardCols, false); if (!y) return; to = { yard: y }; }
+    cr.move = { kind: m.kind, from, to, step: 0 }; cr.phase = 'move'; cr.timer = 0;
+  }
+  runMove(cr, other, dt) {
+    const C = HB.crane, mv = cr.move, src = mv.step < 4 ? mv.from : mv.to;
+    const top = this.stackTop(src), tx = top[0], tz = top[2];
+    cr.target = tx;
+    const sep = C.legW + 0.04, blocked = Math.abs(tx - other.x) < sep && other.phase !== 'idle';
+    switch (mv.step) {
+      case 0: case 4: { // travel + trolley out (spreader high)
+        cr.hoist = approach(cr.hoist, C.clearY, 0.65 * dt);
+        if (!blocked) cr.x = approach(cr.x, tx, 0.5 * dt);
+        if (cr.hoist > C.clearY - 0.02) cr.trolley = approach(cr.trolley, tz, 1.15 * dt);
+        if (Math.abs(cr.x - tx) < 0.002 && Math.abs(cr.trolley - tz) < 0.002 && cr.hoist > C.clearY - 0.005) mv.step++;
+        break;
+      }
+      case 1: case 5: { // lower onto the box / the stack, tracking the ship's bobbing
+        cr.x = tx; cr.trolley = tz;
+        const target = top[1] + (mv.step === 5 ? HB.box.H : 0);
+        cr.hoist = approach(cr.hoist, target, (cr.hoist - target > 0.1 ? 0.7 : 0.28) * dt);
+        if (Math.abs(cr.hoist - target) < 0.002) { mv.step++; cr.timer = 0; }
+        break;
+      }
+      case 2: { // latch
+        cr.x = tx; cr.trolley = tz; cr.hoist = top[1]; cr.timer += dt;
+        if (cr.timer > 0.25) {
+          const st = src.ship ? this.shipStacks[src.ship[0] * HB.shipSlots.rows + src.ship[1]] : this.yard[src.yard[0] * HB.yard.rows + src.yard[1]];
+          cr.box = st.pop(); this.boxes[cr.box].at = 'crane'; this.boxes[cr.box].crane = cr.id; mv.step++;
+        }
+        break;
+      }
+      case 3: { // hoist clear
+        if (src.ship) { cr.x = tx; cr.trolley = tz; }
+        cr.hoist = approach(cr.hoist, C.clearY, 0.65 * dt);
+        if (cr.hoist > C.clearY - 0.002) mv.step++;
+        break;
+      }
+      case 6: { // unlatch
+        cr.x = tx; cr.trolley = tz; cr.hoist = top[1] + HB.box.H; cr.timer += dt;
+        if (cr.timer > 0.25) {
+          const st = mv.to.ship ? this.shipStacks[mv.to.ship[0] * HB.shipSlots.rows + mv.to.ship[1]] : this.yard[mv.to.yard[0] * HB.yard.rows + mv.to.yard[1]];
+          st.push(cr.box); this.boxes[cr.box].at = mv.to.ship ? 'ship' : 'yard'; cr.box = -1; mv.step++;
+          this.tally.boxes++;
+          if (mv.kind === 'unload') this.call.unloaded++; else this.call.loaded++;
+          this.events.push({ type: 'box', crane: cr.id, kind: mv.kind });
+        }
+        break;
+      }
+      default: { // hoist away, done
+        cr.hoist = approach(cr.hoist, C.clearY, 0.65 * dt);
+        if (cr.hoist > C.clearY - 0.002) { cr.phase = 'idle'; cr.move = null; }
+      }
+    }
+  }
+  // ── the ship's day ──
+  setPhase(p) { this.phase = p; this.phaseT = 0; this.log.push([this.t, p]); this.events.push({ type: 'phase', phase: p }); }
+  castOff() { if (this.phase === 'work') { this.castEarly = true; return true; } return false; }
+  callIn() { if (this.phase === 'atSea') { this.ship.hurry = true; return true; } return false; }
+  canCastOff() { return this.phase === 'work' && !this.castEarly; }
+  canCallIn() { return this.phase === 'atSea' && !this.ship.hurry; }
+  horn() { this.ship.horn = 2.2; this.events.push({ type: 'horn' }); for (const g of this.gulls) this.scareGull(g); }
+  status() {
+    if (this.phase === 'work') {
+      if (this.castEarly) return 'Finishing up';
+      return this.call.unloaded < this.call.unloadTotal ? `Unloading ${this.call.unloaded} / ${this.call.unloadTotal}` : `Loading ${this.call.loaded} / ${this.call.loadTotal}`;
+    }
+    if (this.phase === 'atSea') return `At sea ${Math.round(100 * this.ship.s / this.lap.length)}%`;
+    return PHASE_TEXT[this.phase];
+  }
+  stepShip(dt) {
+    const S = this.ship, T = this.tug, cr = this.cranes;
+    this.phaseT += dt;
+    switch (this.phase) {
+      case 'work': {
+        S.pose = { ...HB.ship.berth };
+        const done = cr.every(c => c.phase === 'idle') && (this.castEarly || cr.every(c => !c.queue.length));
+        if (done && this.phaseT > 1) { this.setPhase('boomsUp'); for (const c of cr) c.queue = []; }
+        break;
+      }
+      case 'boomsUp': {
+        if (cr.every(c => c.boom > 1.34)) { this.setPhase('tugComing'); this.tugTo(this.towSpot(), { faceBow: true }); }
+        break;
+      }
+      case 'tugComing': {
+        if (!T.queue.length) { this.setPhase('castOff'); this.tow = { t: 0 }; }
+        break;
+      }
+      case 'castOff': {
+        const tw = this.tow; tw.t += dt;
+        const pass = 1.6, pull = 7.5, slip = 1.2;
+        if (tw.t < pass) T.line = Math.min(1, tw.t / pass);
+        const k = smooth((tw.t - pass) / pull);
+        S.pose = towPose(k);
+        // the tug hangs off the bow on a taut line and walks backwards, pulling it out
+        const bow = this.bowPoint(S.pose), ang = S.pose.yaw + 1.05 - 0.25 * k, len = 0.56 + 0.04 * Math.sin(tw.t * 1.4) * (k > 0 && k < 1 ? 1 : 0);
+        if (tw.t >= pass && tw.t < pass + pull) {
+          T.queue = [];
+          const tx = bow[0] + Math.cos(ang) * len, tz = bow[1] + Math.sin(ang) * len;
+          T.pose = { x: tx, z: tz, yaw: Math.atan2(bow[1] - tz, bow[0] - tx) };
+          T.wash = 1; T.speed = -0.2;
+        }
+        if (tw.t >= pass + pull) T.line = Math.max(0, 1 - (tw.t - pass - pull) / slip);
+        if (tw.t >= pass + pull + slip) {
+          T.wash = 0;
+          // line off: pivot on the spot and go home
+          T.queue = [{ pivot: Math.atan2(HB.tug.home.z - T.pose.z, HB.tug.home.x - T.pose.x) }, { goto: [0.62, -0.62] }, { goto: [HB.tug.home.x, HB.tug.home.z], yaw: HB.tug.home.yaw }];
+          S.s = 0; S.speed = 0; S.hurry = false; this.horn(); this.setPhase('atSea');
+        }
+        break;
+      }
+      case 'atSea': case 'comingIn': {
+        const L = this.lap.length, vmax = S.hurry ? 0.62 : 0.3, remain = L - S.s;
+        const want = Math.min(vmax, Math.max(0.035, Math.sqrt(2 * 0.06 * Math.max(0, remain))));
+        S.speed = approach(S.speed, this.phaseT < 1.2 && this.phase === 'atSea' ? 0 : want, 0.12 * dt);
+        S.s = Math.min(L, S.s + S.speed * dt);
+        S.pose = this.lap.at(S.s);
+        if (this.phase === 'atSea' && S.s > 0.35 * L && !this.tugSentOut) { this.tugSentOut = true; this.tugTo(HB.tug.standby, { route: [[0.6, -0.42]] }); }
+        if (this.phase === 'atSea' && remain < 1.25) this.setPhase('comingIn');
+        if (S.s >= L - 1e-4) {
+          S.speed = 0; this.tally.voyages++; this.tugSentOut = false;
+          this.setPhase('berthing');
+          const side = { x: HB.ship.standby.x, z: HB.ship.standby.z + this.pushOff };
+          this.berth = { t: 0, stage: 'approach' };
+          this.tugTo({ x: side.x, z: side.z + 0.18, yaw: -Math.PI / 2 });
+        }
+        break;
+      }
+      case 'berthing': {
+        const bt = this.berth;
+        if (bt.stage === 'approach' && !T.queue.length) { bt.stage = 'nose'; T.queue = [{ goto: [S.pose.x, S.pose.z + this.pushOff], speed: 0.16 }]; }
+        else if (bt.stage === 'nose' && !T.queue.length) { bt.stage = 'push'; bt.t = 0; }
+        else if (bt.stage === 'push') {
+          bt.t += dt; const k = smooth(bt.t / 5.5), A = HB.ship.standby, B = HB.ship.berth;
+          S.pose = { x: A.x, z: lerp(A.z, B.z, k), yaw: 0 };
+          T.queue = []; T.pose = { x: S.pose.x, z: S.pose.z + this.pushOff, yaw: -Math.PI / 2 }; T.wash = 1; T.speed = 0.08;
+          if (bt.t > 5.5) {
+            bt.stage = 'backoff'; T.wash = 0.5;
+            T.queue = [{ goto: [S.pose.x, S.pose.z + this.pushOff + 0.42], reverse: true, speed: 0.3 }, { pivot: 0 }, { goto: [0.1, 0.02] }, { goto: [0.62, -0.42] }, { goto: [HB.tug.home.x, HB.tug.home.z], yaw: HB.tug.home.yaw }];
+          }
+        } else if (bt.stage === 'backoff') {
+          S.pose = { ...HB.ship.berth };
+          if (T.queue.length <= 4) { T.wash = 0; this.setPhase('boomsDown'); }
+        }
+        break;
+      }
+      case 'boomsDown': {
+        S.pose = { ...HB.ship.berth };
+        if (this.phaseT > 0.5 && cr.every(c => c.boom < 0.01)) { this.castEarly = false; this.planCall(); this.setPhase('work'); }
+        break;
+      }
+    }
+    S.prop += dt * (Math.abs(S.speed) * 40 + (this.phase === 'castOff' ? 2 : 0)); S.radar += dt * 2.2; S.horn = Math.max(0, S.horn - dt);
+  }
+  get pushOff() { return HB.ship.B / 2 + HB.tug.L / 2 + 0.012; }
+  bowPoint(p) { return [p.x + Math.cos(p.yaw) * HB.ship.L / 2, p.z + Math.sin(p.yaw) * HB.ship.L / 2]; }
+  towSpot() { const bow = this.bowPoint(HB.ship.berth), a = HB.ship.berth.yaw + 1.05; const x = bow[0] + Math.cos(a) * 0.56, z = bow[1] + Math.sin(a) * 0.56; return { x, z, yaw: Math.atan2(bow[1] - z, bow[0] - x) }; }
+  tugTo(p, o = {}) { const q = []; for (const w of o.route || []) q.push({ goto: w }); q.push({ goto: [p.x, p.z], yaw: p.yaw }); this.tug.queue = q; }
+  // the tug: pivot on the spot when it must turn hard, otherwise steer as it goes
+  stepTug(dt) {
+    const T = this.tug, c = T.queue[0];
+    T.prop += dt * (Math.abs(T.speed) * 50 + T.wash * 20);
+    if (!c) { T.speed = approach(T.speed, 0, dt); return; }
+    const p = T.pose, turn = 1.5 * dt;
+    if (c.pivot !== undefined) { const d = wrapA(c.pivot - p.yaw); p.yaw += clamp(d, -turn, turn); T.speed = 0; T.wash = Math.max(T.wash, 0.4); if (Math.abs(d) < 0.01) { p.yaw = c.pivot; T.queue.shift(); } return; }
+    const dx = c.goto[0] - p.x, dz = c.goto[1] - p.z, dist = Math.hypot(dx, dz);
+    if (dist < 0.004) {
+      if (c.yaw !== undefined) { const d = wrapA(c.yaw - p.yaw); p.yaw += clamp(d, -turn, turn); if (Math.abs(d) > 0.01) return; p.yaw = c.yaw; }
+      T.queue.shift(); T.speed = 0; return;
+    }
+    const bearing = Math.atan2(dz, dx) + (c.reverse ? Math.PI : 0), d = wrapA(bearing - p.yaw);
+    if (Math.abs(d) > 0.5 && dist > 0.05) { p.yaw += clamp(d, -turn, turn); T.speed = 0; return; }
+    p.yaw += clamp(d, -turn * 0.7, turn * 0.7);
+    const v = Math.min(c.speed || 0.5, dist * 1.6 + 0.02); T.speed = c.reverse ? -v : v;
+    const step = Math.min(dist, v * dt); p.x += dx / dist * step; p.z += dz / dist * step;
+  }
+  // ── everything that floats rides the sea: heave, pitch and roll from sample points ──
+  float(o, L, B, dt, stiff = 18) {
+    const p = o.pose, c = Math.cos(p.yaw), s = Math.sin(p.yaw), H = (a, b) => this.sea.height(p.x + c * a - s * b, p.z + s * a + c * b);
+    const hb = H(L * 0.4, 0), hs = H(-L * 0.4, 0), hp = H(0, -B * 0.45), hsb = H(0, B * 0.45);
+    const y = this.level + (hb + hs + hp + hsb) / 4, pitch = Math.atan2(hb - hs, L * 0.8) * 3.2, roll = Math.atan2(hsb - hp, B * 0.9) * 2.0;
+    const k = stiff, d = 2 * Math.sqrt(k) * 0.55;
+    o.vy += (k * (y - o.y) - d * o.vy) * dt; o.y += o.vy * dt;
+    o.vp += (k * (pitch - o.pitch) - d * o.vp) * dt; o.pitch += o.vp * dt;
+    o.vr += (k * (roll - o.roll) - d * o.vr) * dt; o.roll += o.vr * dt;
+  }
+  // ── objects: transforms for the renderer (position + quaternion) ──
+  updateObjects() {
+    const O = this.objects, set = (i, p, q) => { O[i].p = p; O[i].q = q; };
+    const S = this.ship, sq = quatYPR(S.pose.yaw, S.pitch || 0, S.roll || 0);
+    set(OBJ.ship, [S.pose.x, S.y || this.level, S.pose.z], sq);
+    set(OBJ.radar, toWorld(O[OBJ.ship], [-0.62, 0.57, 0]), qmul(sq, qaxis([0, 1, 0], S.radar)));
+    set(OBJ.prop, toWorld(O[OBJ.ship], [-0.78, -0.07, 0]), qmul(sq, qaxis([1, 0, 0], S.prop)));
+    const T = this.tug, tq = quatYPR(T.pose.yaw, T.pitch || 0, T.roll || 0);
+    set(OBJ.tug, [T.pose.x, T.y || this.level, T.pose.z], tq);
+    set(OBJ.tugProp, toWorld(O[OBJ.tug], [-0.2, -0.05, 0]), qmul(tq, qaxis([1, 0, 0], T.prop)));
+    set(OBJ.lamp, [HB.light[0], 0.98, HB.light[1]], qaxis([0, 1, 0], this.t * 0.9));
+    this.cranes.forEach((cr, k) => {
+      const base = k ? OBJ.craneB : OBJ.craneA, C = HB.crane;
+      set(base, [cr.x, HB.deckY, 0], [0, 0, 0, 1]);
+      set(base + 1, [cr.x, C.girderY, C.railW], qaxis([1, 0, 0], -cr.boom));
+      // trolley rides the boom when it is down, the backreach always
+      const onBoom = cr.trolley > C.railW, tp = onBoom ? toWorld(O[base + 1], [0, 0, cr.trolley - C.railW]) : [cr.x, C.girderY, cr.trolley];
+      set(base + 2, tp, [0, 0, 0, 1]);
+      set(base + 3, [cr.x, cr.hoist, cr.trolley], [0, 0, 0, 1]);
+    });
+    this.yachts.forEach((y, k) => set(OBJ.yacht + k, [y.pose.x, y.y || this.level, y.pose.z], quatYPR(y.pose.yaw, y.pitch, y.roll)));
+    HB.boats.forEach((b, k) => { const f = this.boatFloat[k]; set(OBJ.boat + k, [b.x, f.y || this.level, b.z], quatYPR(b.yaw, f.pitch, f.roll)); });
+    this.buoys.forEach((b, k) => set(OBJ.buoy + k, [b.x, b.y, b.z], quatYPR(0, b.pitch, b.roll)));
+    this.lifebuoys.forEach((b, k) => set(OBJ.lifebuoy + k, b.p.slice(), quatYPR(b.spin, b.tiltX, b.tiltZ)));
+  }
+  // container instances: [object id, local x, y, z, livery]
+  boxInstances(out = []) {
+    out.length = 0;
+    this.yard.forEach((st, k) => { const c = Math.floor(k / HB.yard.rows), r = k % HB.yard.rows; st.forEach((id, t) => { const p = this.yardSlot(c, r, t); out.push(0, p[0], p[1], p[2], this.boxes[id].livery); }); });
+    this.shipStacks.forEach((st, k) => { const b = Math.floor(k / HB.shipSlots.rows), r = k % HB.shipSlots.rows; st.forEach((id, t) => { const p = this.shipLocal(b, r, t); out.push(OBJ.ship, p[0], p[1], p[2], this.boxes[id].livery); }); });
+    for (const cr of this.cranes) if (cr.box >= 0) out.push((cr.id ? OBJ.craneB : OBJ.craneA) + 3, 0, -HB.box.H, 0, this.boxes[cr.box].livery);
+    return out;
+  }
+  // ═════════ life: fish, jellyfish, gulls, pellets, lifebuoys, buoys ═════════
+  initLife() {
+    const R = this.R, L = this.layout;
+    const wet = (x, z) => groundH(x, z) < this.level - 0.18;
+    const spawn = (n, cx, cz, kind, size) => { const out = []; while (out.length < n) { const x = cx + (R() - 0.5) * 0.9, z = cz + (R() - 0.5) * 0.9; if (!wet(x, z)) continue; out.push({ p: [x, -0.4 - R() * 0.3, z], v: [(R() - 0.5) * 0.1, 0, (R() - 0.5) * 0.1], kind, size: size * (0.85 + R() * 0.3), phase: R() * 6 }); } return out; };
+    this.fish = [...spawn(46, -0.9, 1.2, 0, 1), ...spawn(40, 0.0, 0.5, 1, 0.8), ...spawn(16, 1.0, -0.4, 2, 0.75)];
+    this.jellies = []; while (this.jellies.length < 6) { const x = (R() - 0.5) * 4.2, z = -0.6 + R() * 2.8; if (wet(x, z)) this.jellies.push({ p: [x, -0.25 - R() * 0.35, z], phase: R() * 6, size: 0.05 + R() * 0.03, v: [0, 0, 0] }); }
+    // perches: [object id, local point]
+    const P = this.perches = [];
+    for (const l of L.lamps) P.push({ obj: 0, at: [l.x, l.y + l.h + 0.02, l.z] });
+    L.houses.filter((h, i) => i % 3 === 0).forEach(h => P.push({ obj: 0, at: [h.x, h.y + h.h + h.roof, h.z] }));
+    P.push({ obj: 0, at: [L.church.x, L.church.y + L.church.h + L.church.spire + 0.06, L.church.z - 0.12] });
+    P.push({ obj: 0, at: [HB.light[0] + 0.06, 0.9, HB.light[1] + 0.04] });
+    P.push({ obj: OBJ.craneA, at: [0, HB.crane.apexY + 0.02, (HB.crane.railW + HB.crane.railL) / 2] }, { obj: OBJ.craneB, at: [0, HB.crane.apexY + 0.02, (HB.crane.railW + HB.crane.railL) / 2] });
+    P.push({ obj: OBJ.ship, at: [-0.64, 0.69, 0] }, { obj: OBJ.tug, at: [0.02, 0.24, 0] });
+    P.push({ obj: OBJ.yacht, at: [0.02, 0.5, 0] }, { obj: OBJ.yacht + 1, at: [0.02, 0.5, 0] });
+    this.gulls = Array.from({ length: 9 }, (_, i) => ({ p: [(R() - 0.5) * 3, 1.0 + R() * 0.6, (R() - 0.5) * 3], v: [0, 0, 0], yaw: R() * 6, bank: 0, flap: R() * 6, state: 'fly', t: R() * 8, perch: -1, c: [(R() - 0.5) * 2, 0, (R() - 0.5) * 2], r: 0.7 + R() * 0.8, w: (R() < 0.5 ? 1 : -1) * (0.45 + R() * 0.25), alt: 1.0 + R() * 0.5, ang: R() * 6 }));
+    this.pellets = [];
+    this.buoys = [...HB.yachts.map(y => ({ x: y.m[0], z: y.m[1], y: 0, vy: 0, pitch: 0, roll: 0, color: 0 })), { x: HB.channelBuoy[0], z: HB.channelBuoy[1], y: 0, vy: 0, pitch: 0, roll: 0, color: 1 }];
+    this.boatFloat = HB.boats.map(b => ({ pose: { ...b }, y: 0, vy: 0, pitch: 0, vp: 0, roll: 0, vr: 0 }));
+    this.lifebuoys = [{ p: [1.55, HB.pier.y + 0.02, -0.3] }, { p: [0.95, 0, -0.35] }, { p: [-0.2, 0, 0.55] }].map(b => ({ p: b.p, v: [0, 0, 0], held: false, spin: 0, tiltX: 0, tiltZ: 0, floating: false }));
+    this.threats = [];
+  }
+  feed() {
+    const R = this.R; this.tally.fed++;
+    for (let i = 0; i < 28; i++) this.pellets.push({ p: [1.55 + (R() - 0.5) * 0.08, HB.pier.y + 0.08, 0.16], v: [(R() - 0.5) * 0.6, 0.5 + R() * 0.4, 0.25 + R() * 0.55], wet: false, life: 30 });
+    // some gulls come for it
+    this.gulls.filter((g, i) => i % 2 === 0).forEach(g => { if (g.state !== 'perched' || this.R() < 0.6) { g.state = 'dive'; g.t = 0; g.perch = -1; } });
+    this.events.push({ type: 'feed' });
+  }
+  splash(x, z, amp = 0.05) { this.sea.drop(x, z, 0.16, -amp, 0.8); this.threats.push({ p: [x, this.level, z], r: 0.7, t: 1.2 }); }
+  scareGull(g) { if (g.state === 'perched' || g.state === 'toPerch') { g.perch = -1; } g.state = 'fly'; g.v[1] += 1.2; g.t = 0; g.alt = 1.1 + this.R() * 0.6; }
+  stepLife(dt) {
+    const R = this.R, sea = this.sea, lvl = this.level, S = this.ship, T = this.tug;
+    for (const th of this.threats) th.t -= dt; this.threats = this.threats.filter(t => t.t > 0);
+    const hulls = [{ p: S.pose, L: HB.ship.L, B: HB.ship.B, d: HB.ship.draft + 0.06, v: S.speed }, { p: T.pose, L: HB.tug.L, B: HB.tug.B, d: HB.tug.draft + 0.05, v: T.speed }];
+    // pellets: fly, splash, float a moment, sink
+    for (const q of this.pellets) {
+      q.life -= dt;
+      const surf = lvl + sea.height(q.p[0], q.p[2]);
+      if (!q.wet) { q.v[1] -= 3 * dt; for (let k = 0; k < 3; k++) q.p[k] += q.v[k] * dt; if (q.p[1] < surf) { q.wet = true; q.v = [0, -0.02, 0]; sea.drop(q.p[0], q.p[2], 0.05, -0.004, 0.2); } }
+      else { const [u, v] = sea.vel(q.p[0], q.p[2]); q.p[0] += u * dt * 0.5; q.p[2] += v * dt * 0.5; q.p[1] = Math.max(groundH(q.p[0], q.p[2]) + 0.01, q.p[1] - 0.04 * dt); }
+    }
+    this.pellets = this.pellets.filter(q => q.life > 0 && !q.eaten);
+    // fish: three schools of boids
+    const F = this.fish, n = F.length;
+    for (let i = 0; i < n; i++) {
+      const f = F[i], a = [0, 0, 0]; let cnt = 0; const coh = [0, 0, 0], ali = [0, 0, 0];
+      for (let j = 0; j < n; j++) {
+        if (i === j) continue; const g = F[j], dx = g.p[0] - f.p[0], dy = g.p[1] - f.p[1], dz = g.p[2] - f.p[2], d2 = dx * dx + dy * dy + dz * dz;
+        if (d2 < 0.0025) { const s = 1 / (d2 + 1e-4) * 0.0012; a[0] -= dx * s; a[1] -= dy * s; a[2] -= dz * s; }
+        if (g.kind === f.kind && d2 < 0.09) { cnt++; for (let k = 0; k < 3; k++) { coh[k] += g.p[k]; ali[k] += g.v[k]; } }
+      }
+      if (cnt) for (let k = 0; k < 3; k++) { a[k] += (coh[k] / cnt - f.p[k]) * 0.6 + (ali[k] / cnt - f.v[k]) * 0.9; }
+      // food
+      let best = null, bd = 1.4; for (const q of this.pellets) if (q.wet) { const d = Math.hypot(q.p[0] - f.p[0], q.p[1] - f.p[1], q.p[2] - f.p[2]); if (d < bd) { bd = d; best = q; } }
+      if (best) { for (let k = 0; k < 3; k++) a[k] += (best.p[k] - f.p[k]) / (bd + 0.05) * 1.6; if (bd < 0.035) { best.eaten = true; } }
+      // threats: fingers, splashes, moving hulls
+      for (const th of this.threats) { const dx = f.p[0] - th.p[0], dz = f.p[2] - th.p[2], dy = f.p[1] - th.p[1], d = Math.hypot(dx, dy, dz); if (d < th.r) { const s = (th.r - d) / th.r * 4 / (d + 0.05); a[0] += dx * s; a[1] += dy * s * 0.5; a[2] += dz * s; } }
+      for (const hu of hulls) { const loc = inObb(f.p[0], f.p[2], hu.p, hu.L, hu.B, 0.18); if (loc) { if (f.p[1] > lvl - hu.d - 0.05) a[1] -= 2.5; if (Math.abs(hu.v) > 0.05) { const away = Math.sign(loc[1] || 1); a[0] += -Math.sin(hu.p.yaw) * away * 1.4; a[2] += Math.cos(hu.p.yaw) * away * 1.4; } } }
+      // stay in the water: above the floor, below the surface, away from walls
+      const floor = groundH(f.p[0], f.p[2]), surf = lvl + sea.height(f.p[0], f.p[2]);
+      if (f.p[1] < floor + 0.07) a[1] += (floor + 0.07 - f.p[1]) * 30; if (f.p[1] > surf - 0.06) a[1] -= (f.p[1] - surf + 0.06) * 30;
+      for (const [ox, oz] of [[0.12, 0], [-0.12, 0], [0, 0.12], [0, -0.12]]) if (groundH(f.p[0] + ox, f.p[2] + oz) > f.p[1] - 0.04 || Math.abs(f.p[0] + ox) > HB.half - 0.06 || Math.abs(f.p[2] + oz) > HB.half - 0.06) { a[0] -= ox * 25; a[2] -= oz * 25; }
+      a[0] += (R() - 0.5) * 0.3; a[2] += (R() - 0.5) * 0.3; a[1] += (R() - 0.5) * 0.1;
+      const vmax = best ? 0.42 : 0.24;
+      for (let k = 0; k < 3; k++) f.v[k] += a[k] * dt;
+      const sp = Math.hypot(f.v[0], f.v[1] * 2, f.v[2]); if (sp > vmax) for (let k = 0; k < 3; k++) f.v[k] *= vmax / sp; if (sp < 0.06) { f.v[0] += Math.cos(f.phase) * 0.02; f.v[2] += Math.sin(f.phase) * 0.02; }
+      for (let k = 0; k < 3; k++) f.p[k] += f.v[k] * dt;
+      if (groundH(f.p[0], f.p[2]) > f.p[1] - 0.02) { for (let k = 0; k < 3; k++) f.p[k] -= f.v[k] * dt * 1.5; f.v[0] *= -0.5; f.v[2] *= -0.5; }
+      f.p[0] = clamp(f.p[0], -HB.half + 0.05, HB.half - 0.05); f.p[2] = clamp(f.p[2], -HB.half + 0.05, HB.half - 0.05);
+      f.p[1] = clamp(f.p[1], floor + 0.03, surf - 0.03);
+      f.phase += dt * (6 + sp * 30);
+    }
+    // jellyfish drift with the water and pulse
+    for (const j of this.jellies) {
+      const [u, v] = sea.vel(j.p[0], j.p[2]); j.phase += dt * 1.6; const pulse = Math.max(0, Math.sin(j.phase)) ** 2;
+      j.v[0] = lerp(j.v[0], u * 0.7 + Math.sin(j.phase * 0.13 + j.size * 40) * 0.015, dt * 2); j.v[2] = lerp(j.v[2], v * 0.7 + Math.cos(j.phase * 0.11) * 0.015, dt * 2);
+      j.v[1] = pulse * 0.05 - 0.012;
+      for (let k = 0; k < 3; k++) j.p[k] += j.v[k] * dt;
+      const floor = groundH(j.p[0], j.p[2]), surf = lvl + sea.height(j.p[0], j.p[2]);
+      if (floor > lvl - 0.25 || Math.abs(j.p[0]) > HB.half - 0.15 || Math.abs(j.p[2]) > HB.half - 0.15) { j.p[0] -= j.v[0] * dt * 3; j.p[2] -= j.v[2] * dt * 3; j.v[0] *= -1; j.v[2] *= -1; }
+      j.p[1] = clamp(j.p[1], floor + 0.12, surf - 0.1);
+    }
+    // gulls
+    const perchPos = k => toWorld(this.objects[this.perches[k].obj], this.perches[k].at);
+    const taken = new Set(this.gulls.filter(g => g.perch >= 0).map(g => g.perch));
+    for (const g of this.gulls) {
+      g.t += dt; g.flap += dt * (g.state === 'perched' ? 0 : g.state === 'fly' ? 4 : 9);
+      let target = null;
+      if (g.state === 'fly') {
+        g.ang += g.w * dt; target = [g.c[0] + Math.cos(g.ang) * g.r, g.alt + Math.sin(g.ang * 0.7) * 0.08, g.c[2] + Math.sin(g.ang) * g.r];
+        if (g.t > 6 + R() * 30 && R() < dt * 0.4) { const free = this.perches.map((_, k) => k).filter(k => !taken.has(k)); if (free.length) { g.perch = free[(R() * free.length) | 0]; taken.add(g.perch); g.state = 'toPerch'; g.t = 0; } }
+        if (g.t > 8 && R() < dt * 0.05) { g.c = [(R() - 0.5) * 2.4, 0, (R() - 0.5) * 2.4]; g.r = 0.6 + R() * 0.9; }
+      } else if (g.state === 'toPerch') {
+        target = perchPos(g.perch);
+        const d = Math.hypot(target[0] - g.p[0], target[1] - g.p[1], target[2] - g.p[2]);
+        if (d < 0.03) { g.state = 'perched'; g.t = 0; g.v = [0, 0, 0]; }
+      } else if (g.state === 'perched') {
+        g.p = perchPos(g.perch); g.v = [0, 0, 0];
+        if (g.t > 9 + R() * 20 && R() < dt * 0.3) this.scareGull(g);
+        continue;
+      } else if (g.state === 'dive') {
+        const q = this.pellets.find(q => q.wet && q.p[1] > lvl - 0.08) || this.pellets.find(q => !q.wet);
+        if (!q || g.t > 7) { g.state = 'fly'; g.t = 0; }
+        else { target = [q.p[0], lvl + 0.02, q.p[2]]; if (Math.hypot(target[0] - g.p[0], target[1] - g.p[1], target[2] - g.p[2]) < 0.05) { q.eaten = true; sea.drop(g.p[0], g.p[2], 0.06, -0.006, 0.3); g.state = 'fly'; g.t = 0; g.v[1] = 1.2; } }
+      }
+      if (target) {
+        const dx = target[0] - g.p[0], dy = target[1] - g.p[1], dz = target[2] - g.p[2], d = Math.hypot(dx, dy, dz) + 1e-6;
+        const sp = g.state === 'fly' ? 0.55 : g.state === 'dive' ? 0.9 : Math.min(0.6, d * 2.2 + 0.08);
+        const want = [dx / d * sp, dy / d * sp, dz / d * sp], k = Math.min(1, dt * (g.state === 'toPerch' ? 4 : 2));
+        for (let i = 0; i < 3; i++) g.v[i] += (want[i] - g.v[i]) * k;
+      }
+      for (let i = 0; i < 3; i++) g.p[i] += g.v[i] * dt;
+      g.p[1] = Math.max(g.p[1], Math.max(lvl, groundH(g.p[0], g.p[2])) + 0.04);
+      const yaw = Math.atan2(g.v[2], g.v[0]); g.bank = lerp(g.bank, clamp(wrapA(yaw - g.yaw) / dt * 0.08, -0.7, 0.7), dt * 3); g.yaw = yaw;
+    }
+    // buoys and moored craft
+    for (const b of this.buoys) { const h = sea.height(b.x, b.z), hx = sea.height(b.x + 0.05, b.z) - sea.height(b.x - 0.05, b.z), hz = sea.height(b.x, b.z + 0.05) - sea.height(b.x, b.z - 0.05); b.vy += (40 * (lvl + h - b.y) - 6 * b.vy) * dt; b.y += b.vy * dt; b.pitch = lerp(b.pitch, -hx * 6, dt * 5); b.roll = lerp(b.roll, hz * 6, dt * 5); }
+    this.yachts.forEach((y, k) => {
+      const [u, v] = sea.vel(y.m[0], y.m[1]); y.ang = wrapA(y.ang + dt * (0.08 * Math.sin(this.t * 0.07 + k * 2) + (u * Math.sin(y.ang) - v * Math.cos(y.ang)) * 2));
+      y.pose = { x: y.m[0] + Math.cos(y.ang) * y.r, z: y.m[1] + Math.sin(y.ang) * y.r, yaw: y.ang + Math.PI };
+      this.float(y, 0.32, 0.11, dt, 22);
+    });
+    this.boatFloat.forEach(f => this.float(f, 0.3, 0.11, dt, 22));
+    // lifebuoys
+    for (const b of this.lifebuoys) {
+      if (b.held) { b.floating = false; continue; }
+      const surf = lvl + sea.height(b.p[0], b.p[2]), gh = groundH(b.p[0], b.p[2]);
+      const onPier = b.p[0] > HB.pier.x0 && b.p[0] < HB.pier.x1 && b.p[2] < HB.pier.z1 && b.p[2] > HB.pier.z0 && b.p[1] > HB.pier.y - 0.03;
+      const ground = Math.max(gh, onPier ? HB.pier.y : -9) + 0.012;
+      if (b.p[1] > Math.max(surf, ground) + 0.002 || b.v[1] > 0) {
+        b.floating = false; b.v[1] -= 3.2 * dt; for (let k = 0; k < 3; k++) b.p[k] += b.v[k] * dt; b.spin += dt * Math.hypot(b.v[0], b.v[2]) * 4;
+        if (b.p[1] < surf && surf > ground) { b.p[1] = surf; b.v[1] = 0; b.v[0] *= 0.5; b.v[2] *= 0.5; sea.drop(b.p[0], b.p[2], 0.09, -0.012, 0.6); }
+        else if (b.p[1] < ground) { b.p[1] = ground; b.v[1] = Math.abs(b.v[1]) > 0.4 ? -b.v[1] * 0.3 : 0; b.v[0] *= 0.6; b.v[2] *= 0.6; }
+      } else if (surf > ground) {
+        b.floating = true; const [u, v] = sea.vel(b.p[0], b.p[2]);
+        b.v[0] = lerp(b.v[0], u * 0.8, dt * 1.5); b.v[2] = lerp(b.v[2], v * 0.8, dt * 1.5); b.v[1] = 0;
+        b.p[0] += b.v[0] * dt; b.p[2] += b.v[2] * dt; b.p[1] = surf;
+        const hx = sea.height(b.p[0] + 0.05, b.p[2]) - sea.height(b.p[0] - 0.05, b.p[2]), hz = sea.height(b.p[0], b.p[2] + 0.05) - sea.height(b.p[0], b.p[2] - 0.05);
+        b.tiltX = lerp(b.tiltX, -hx * 8, dt * 5); b.tiltZ = lerp(b.tiltZ, hz * 8, dt * 5);
+      } else { b.v[0] *= 0.8; b.v[2] *= 0.8; b.p[1] = ground; }
+      // bounce off the land edge, the pier, buildings and the breakwater
+      const next = [b.p[0] + b.v[0] * 0.02, b.p[2] + b.v[2] * 0.02];
+      if (b.floating && (groundH(next[0], next[1]) > lvl - 0.01 || (next[0] > HB.pier.x0 && next[0] < HB.pier.x1 && next[1] < HB.pier.z1))) { b.v[0] *= -0.6; b.v[2] *= -0.6; }
+      for (const B of this.layout.buildings) if (Math.abs(b.p[0] - B.x) < B.w / 2 + 0.06 && Math.abs(b.p[2] - B.z) < B.d / 2 + 0.06 && b.p[1] < (B.y || HB.deckY) + B.h) { const ox = b.p[0] - B.x, oz = b.p[2] - B.z; if (Math.abs(ox) / (B.w / 2) > Math.abs(oz) / (B.d / 2)) { b.p[0] = B.x + Math.sign(ox) * (B.w / 2 + 0.061); b.v[0] = Math.abs(b.v[0]) * Math.sign(ox) * 0.5; } else { b.p[2] = B.z + Math.sign(oz) * (B.d / 2 + 0.061); b.v[2] = Math.abs(b.v[2]) * Math.sign(oz) * 0.5; } }
+      // shoved by the hulls
+      for (const hu of hulls) { const loc = inObb(b.p[0], b.p[2], hu.p, hu.L, hu.B, 0.07); if (loc && b.p[1] < lvl + 0.3) { const c = Math.cos(hu.p.yaw), s = Math.sin(hu.p.yaw), side = Math.sign(loc[1] || 1); b.p[0] += -s * side * 0.01; b.p[2] += c * side * 0.01; b.v[0] = -s * side * 0.3 + c * hu.v; b.v[2] = c * side * 0.3 + s * hu.v; } }
+      b.p[0] = clamp(b.p[0], -HB.half + 0.07, HB.half - 0.07); b.p[2] = clamp(b.p[2], -HB.half + 0.07, HB.half - 0.07);
+      if (Math.abs(b.p[0]) >= HB.half - 0.07) b.v[0] *= -0.5; if (Math.abs(b.p[2]) >= HB.half - 0.07) b.v[2] *= -0.5;
+    }
+  }
+  // ── one fixed step ──
+  step(dt, opts = {}) {
+    this.t += dt; this.events.length = 0;
+    if (opts.level !== undefined && Math.abs(opts.level - this.level) > 1e-4) { this.level = opts.level; this.sea.setLevel(this.level); }
+    this.stepShip(dt); this.stepTug(dt); this.stepCranes(dt);
+    // ride the waves
+    this.float(this.ship, HB.ship.L, HB.ship.B, dt, 10); this.float(this.tug, HB.tug.L, HB.tug.B, dt, 16);
+    // sea: hull pressure, wake foam, prop wash, then two substeps
+    const sea = this.sea; sea.P.fill(0);
+    sea.stampHull(this.ship.pose, HB.ship.L, HB.ship.B, 0.035, Math.abs(this.ship.speed), 1.6);
+    sea.stampHull(this.tug.pose, HB.tug.L, HB.tug.B, 0.025, Math.abs(this.tug.speed) + this.tug.wash * 0.15, 2.2);
+    if (this.tug.wash > 0) { const p = this.tug.pose, c = Math.cos(p.yaw), s = Math.sin(p.yaw), dir = this.tug.speed < 0 ? 1 : -1; sea.push(p.x - c * 0.25, p.z - s * 0.25, 0.12, c * dir * 0.04 * this.tug.wash, s * dir * 0.04 * this.tug.wash); sea.foam[sea.idx(p.x - c * 0.26, p.z - s * 0.26)] = Math.min(1, sea.foam[sea.idx(p.x - c * 0.26, p.z - s * 0.26)] + 0.25 * this.tug.wash); }
+    for (const hu of [[this.ship.pose, this.ship.speed], [this.tug.pose, this.tug.speed]]) if (Math.abs(hu[1]) > 0.05) this.threats.push({ p: [hu[0].x, this.level, hu[0].z], r: 0.55, t: 0.05 });
+    this.swell(this.swellAmp ?? 1);
+    const sub = 2; for (let k = 0; k < sub; k++) sea.step(dt / sub, opts.ax || 0, opts.az || 0);
+    this.stepLife(dt);
+    this.updateObjects();
+  }
+  // a gentle swell rolls in from the open sea (the front of the block) and reflects off the quays
+  swell(k) {
+    if (!k) return;
+    const sea = this.sea, N = sea.N, t = this.t;
+    for (let j = N - 5; j < N; j++) { const w = (j - (N - 6)) / 5; for (let i = 0; i < N; i++) { const c = i + j * N; if (!sea.D[c]) continue; const x = sea.cx(i);
+      sea.P[c] += k * w * (0.017 * Math.sin(t * 5.6 - x * 0.9) + 0.011 * Math.sin(t * 4.1 + x * 1.7 + 1.3)); } }
+  }
+  activity() { const c = this.cranes.reduce((a, cr) => a + cr.busy, 0) / 2, s = Math.min(1, Math.abs(this.ship.speed) / 0.3), t = Math.min(1, Math.abs(this.tug.speed) / 0.3 + this.tug.wash * 0.5); return clamp(0.55 * c + 0.3 * s + 0.15 * t, 0, 1); }
+}
+function approach(v, t, d) { return v < t ? Math.min(t, v + d) : Math.max(t, v - d); }
+
+// headless audit: does anything hit anything? (used by the node test)
+function audit(H) {
+  const out = [], S = H.ship, T = H.tug, lvl = H.level;
+  const skip = H.phase === 'work' || H.phase === 'boomsUp' || H.phase === 'boomsDown';
+  for (const [x, z] of hullPoints(S.pose, HB.ship.L, HB.ship.B)) { const r = clearance(x, z, lvl, HB.ship.draft); if (r && !(skip && r === 'quay')) out.push('ship: ' + r); }
+  for (const [x, z] of hullPoints(T.pose, HB.tug.L, HB.tug.B, 6)) { const r = clearance(x, z, lvl, HB.tug.draft); if (r) out.push('tug: ' + r); }
+  const pushing = H.phase === 'berthing' && H.berth && (H.berth.stage === 'push' || H.berth.stage === 'nose');
+  if (!pushing && obbOverlap(S.pose, HB.ship.L, HB.ship.B, T.pose, HB.tug.L, HB.tug.B)) out.push('ship and tug overlap');
+  if (pushing && obbOverlap(S.pose, HB.ship.L, HB.ship.B - 0.03, T.pose, HB.tug.L - 0.03, HB.tug.B)) out.push('tug inside ship while pushing');
+  if (Math.abs(H.cranes[0].x - H.cranes[1].x) < HB.crane.legW) out.push('cranes too close');
+  return out;
+}
+/* @core-end */
+// ═══════════════════════════════ geometry: the whole diorama, built procedurally ═══════════════════════════════
+// vertex = pos(3) nrm(3) col(3) mat(1) obj(1)
+const MAT = { paint: 0, glass: 1, steel: 2, tiles: 3, timber: 4, corrugated: 5, masonry: 6, rubber: 7, rock: 8, lamp: 9, weed: 10, hull: 11, ground: 12, strata: 13, concrete: 14, slate: 15, bubble: 16, foliage: 17, star: 18, copper: 19 };
+const hex = h => [1, 3, 5].map(i => Math.pow(parseInt(h.slice(i, i + 2), 16) / 255, 2.2));
+class Geo {
+  constructor() { this.v = []; this.i = []; this.obj = 0; this.T = null; }
+  at(obj, o = [0, 0, 0], yaw = 0) { this.obj = obj; this.T = { o, c: Math.cos(yaw), s: Math.sin(yaw) }; return this; }
+  xf(p) { const T = this.T; return T ? [T.o[0] + p[0] * T.c - p[2] * T.s, T.o[1] + p[1], T.o[2] + p[0] * T.s + p[2] * T.c] : p; }
+  xn(n) { const T = this.T; return T ? [n[0] * T.c - n[2] * T.s, n[1], n[0] * T.s + n[2] * T.c] : n; }
+  vert(p, n, col, mat) { const P = this.xf(p), N = this.xn(n); this.v.push(P[0], P[1], P[2], N[0], N[1], N[2], col[0], col[1], col[2], mat, this.obj); return this.v.length / 11 - 1; }
+  tri(a, b, c, col, mat, n) { // flat triangle, normal from winding unless given
+    if (!n) { const e = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], f = [c[0] - a[0], c[1] - a[1], c[2] - a[2]]; n = [e[1] * f[2] - e[2] * f[1], e[2] * f[0] - e[0] * f[2], e[0] * f[1] - e[1] * f[0]]; const l = Math.hypot(...n) || 1; n = n.map(x => x / l); }
+    const i0 = this.vert(a, n, col, mat), i1 = this.vert(b, n, col, mat), i2 = this.vert(c, n, col, mat); this.i.push(i0, i1, i2);
+  }
+  quad(a, b, c, d, col, mat, n) { this.tri(a, b, c, col, mat, n); this.tri(a, c, d, col, mat, n); }
+  // axis-aligned (in the current frame) box from a centre and size
+  box(c, s, col, mat, faces = 'all') {
+    const [x, y, z] = c, [hx, hy, hz] = s.map(v => v / 2);
+    const P = (i, j, k) => [x + i * hx, y + j * hy, z + k * hz];
+    const F = [[[1, -1, -1], [1, 1, -1], [1, 1, 1], [1, -1, 1], [1, 0, 0]], [[-1, -1, 1], [-1, 1, 1], [-1, 1, -1], [-1, -1, -1], [-1, 0, 0]],
+      [[-1, 1, -1], [-1, 1, 1], [1, 1, 1], [1, 1, -1], [0, 1, 0]], [[-1, -1, 1], [-1, -1, -1], [1, -1, -1], [1, -1, 1], [0, -1, 0]],
+      [[-1, -1, 1], [1, -1, 1], [1, 1, 1], [-1, 1, 1], [0, 0, 1]], [[1, -1, -1], [-1, -1, -1], [-1, 1, -1], [1, 1, -1], [0, 0, -1]]];
+    F.forEach((f, k) => { if (faces !== 'all' && !faces.includes('xXyYzZ'[k] === undefined ? '' : ['X', 'x', 'Y', 'y', 'Z', 'z'][k])) return; this.quad(P(...f[0]), P(...f[1]), P(...f[2]), P(...f[3]), col, mat, f[4]); });
+  }
+  // cylinder between two points (in the current frame)
+  cyl(a, b, r, n, col, mat, caps = true, r2 = r) {
+    const d = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], L = Math.hypot(...d), w = d.map(x => x / L);
+    const u = Math.abs(w[1]) < 0.9 ? norm(cross(w, [0, 1, 0])) : norm(cross(w, [1, 0, 0])), v = cross(w, u);
+    const ring = (p, rr, k) => { const t = k / n * Math.PI * 2, c = Math.cos(t), s = Math.sin(t); return [p[0] + (u[0] * c + v[0] * s) * rr, p[1] + (u[1] * c + v[1] * s) * rr, p[2] + (u[2] * c + v[2] * s) * rr]; };
+    const nr = k => { const t = k / n * Math.PI * 2; return [u[0] * Math.cos(t) + v[0] * Math.sin(t), u[1] * Math.cos(t) + v[1] * Math.sin(t), u[2] * Math.cos(t) + v[2] * Math.sin(t)]; };
+    for (let k = 0; k < n; k++) {
+      const a0 = this.vert(ring(a, r, k), nr(k), col, mat), a1 = this.vert(ring(a, r, k + 1), nr(k + 1), col, mat), b0 = this.vert(ring(b, r2, k), nr(k), col, mat), b1 = this.vert(ring(b, r2, k + 1), nr(k + 1), col, mat);
+      this.i.push(a0, b0, b1, a0, b1, a1);
+      if (caps) { this.tri(a, ring(a, r, k + 1), ring(a, r, k), col, mat, w.map(x => -x)); if (r2 > 0.0005) this.tri(b, ring(b, r2, k), ring(b, r2, k + 1), col, mat, w); }
+    }
+  }
+  sphere(c, r, col, mat, nu = 10, nv = 6, sy = 1, jitter = 0, seed = 1) {
+    const R = rng(seed), base = this.v.length / 11, noise = [];
+    for (let j = 0; j <= nv; j++) for (let i = 0; i <= nu; i++) {
+      const th = j / nv * Math.PI, ph = i / nu * Math.PI * 2, n = [Math.sin(th) * Math.cos(ph), Math.cos(th), Math.sin(th) * Math.sin(ph)];
+      const k = 1 + (jitter ? (i === nu ? noise[j * (nu + 1)] : (noise[j * (nu + 1) + i] = (R() - 0.5) * jitter)) : 0);
+      this.vert([c[0] + n[0] * r * k, c[1] + n[1] * r * sy * k, c[2] + n[2] * r * k], n, col, mat);
+    }
+    for (let j = 0; j < nv; j++) for (let i = 0; i < nu; i++) { const a = base + j * (nu + 1) + i, b = a + 1, d = a + nu + 1, e = d + 1; this.i.push(a, d, e, a, e, b); }
+  }
+  // gabled roof over a w×d footprint along x (ridge along x)
+  gable(c, w, d, h, col, mat, over = 0.012) {
+    const [x, y, z] = c, hw = w / 2 + over, hd = d / 2 + over;
+    const l0 = [x - hw, y, z - hd], l1 = [x + hw, y, z - hd], r0 = [x - hw, y, z + hd], r1 = [x + hw, y, z + hd], t0 = [x - hw, y + h, z], t1 = [x + hw, y + h, z];
+    this.quad(r0, r1, t1, t0, col, mat); this.quad(l1, l0, t0, t1, col, mat);
+    this.quad(l0, r0, r0, l0, col, mat); // (degenerate eaves kept closed by walls)
+  }
+  build() { return { v: Float32Array.from(this.v), i: Uint32Array.from(this.i) }; }
+}
+function cross(a, b) { return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]; }
+function norm(a) { const l = Math.hypot(...a) || 1; return a.map(x => x / l); }
+
+// ═══════════════════════════════ static world ═══════════════════════════════
+function buildStatic(H) {
+  const G = new Geo(), L = H.layout, R = rng(42), lvl = 0;
+  G.at(0, [0, 0, 0], 0); G.T = null;
+  // ── ground heightfield with exact steps at the quay edge and the old quay ──
+  const xs = [], zs = [], n = 156;
+  for (let i = 0; i <= n; i++) xs.push(-HB.half + 2 * HB.half * i / n);
+  for (let i = 0; i <= n; i++) zs.push(-HB.half + 2 * HB.half * i / n);
+  const ins = (a, v) => { a.push(v - 0.0006, v + 0.0006); a.sort((p, q) => p - q); };
+  ins(zs, HB.quayZ); ins(xs, HB.splitX);
+  const gcol = [1, 1, 1], base = G.v.length / 11;
+  const hAt = (x, z) => groundH(x, z);
+  for (const z of zs) for (const x of xs) {
+    const e = 0.004, nx = hAt(x - e, z) - hAt(x + e, z), nz = hAt(x, z - e) - hAt(x, z + e), nn = norm([nx, 2 * e, nz]);
+    G.vert([x, hAt(x, z), z], nn, gcol, MAT.ground);
+  }
+  const W = xs.length;
+  for (let j = 0; j < zs.length - 1; j++) for (let i = 0; i < W - 1; i++) { const a = base + j * W + i; G.i.push(a, a + W, a + W + 1, a, a + W + 1, a + 1); }
+  // the quay wall face: a true vertical face with its own normal (concrete left, dressed stone right)
+  for (let i = 0; i < W - 1; i++) {
+    const x0 = xs[i], x1 = xs[i + 1], top0 = hAt(x0, HB.quayZ - 0.002), top1 = hAt(x1, HB.quayZ - 0.002), b0 = hAt(x0, HB.quayZ + 0.002), b1 = hAt(x1, HB.quayZ + 0.002);
+    const m = (x0 + x1) / 2 < HB.splitX ? MAT.concrete : MAT.masonry;
+    G.quad([x0, b0, HB.quayZ + 0.0002], [x1, b1, HB.quayZ + 0.0002], [x1, top1, HB.quayZ + 0.0002], [x0, top0, HB.quayZ + 0.0002], [0.62, 0.6, 0.57], m, [0, 0, 1]);
+  }
+  // ── strata on the four cut faces ──
+  const side = (pts, nrm) => {
+    for (let k = 0; k < pts.length - 1; k++) {
+      const [x0, z0] = pts[k], [x1, z1] = pts[k + 1], y0 = hAt(x0, z0), y1 = hAt(x1, z1);
+      G.quad([x0, HB.bottom, z0], [x1, HB.bottom, z1], [x1, y1, z1], [x0, y0, z0], [1, 1, 1], MAT.strata, nrm);
+    }
+  };
+  const e = HB.half - 0.0005, edge = [];
+  for (const x of xs) edge.push(x);
+  side(edge.map(x => [x, e]), [0, 0, 1]); side(edge.slice().reverse().map(x => [x, -e]), [0, 0, -1]);
+  side(zs.slice().reverse().map(z => [e, z]), [1, 0, 0]); side(zs.map(z => [-e, z]), [-1, 0, 0]);
+  // ── terminal: rails, light towers, office ──
+  const steel = hex('#6d7378'), rubber = hex('#1d1d1f'), white = hex('#f2f0ea');
+  for (const rz of [HB.crane.railW, HB.crane.railL]) G.box([-1.05, HB.deckY + 0.004, rz], [2.9, 0.008, 0.012], steel, MAT.steel);
+  for (const t of L.towers) {
+    G.cyl([t.x, HB.deckY, t.z], [t.x, HB.deckY + t.h, t.z], 0.012, 6, hex('#8a8f93'), MAT.steel);
+    G.box([t.x, HB.deckY + t.h + 0.02, t.z + 0.01], [0.12, 0.05, 0.03], hex('#3d4246'), MAT.steel);
+    G.box([t.x, HB.deckY + t.h + 0.02, t.z + 0.027], [0.11, 0.04, 0.004], hex('#fff6d8'), MAT.lamp);
+  }
+  const O = L.office; G.box([O.x, HB.deckY + O.h / 2, O.z], [O.w, O.h, O.d], hex('#e9e4d8'), MAT.paint);
+  G.box([O.x + O.w / 2 + 0.001, HB.deckY + O.h * 0.62, O.z], [0.002, 0.05, O.d * 0.8], hex('#24343f'), MAT.glass);
+  G.box([O.x, HB.deckY + O.h + 0.01, O.z], [O.w + 0.02, 0.02, O.d + 0.02], hex('#5b6066'), MAT.concrete);
+  // fenders, bollards and ladders along the quay
+  for (let x = -2.45; x < 2.5; x += 0.24) {
+    if (x > HB.pier.x0 - 0.1 && x < HB.pier.x1 + 0.1) continue;
+    G.box([x, HB.deckY - 0.08, HB.quayZ + 0.014], [0.05, 0.12, 0.026], rubber, MAT.rubber);
+    G.cyl([x + 0.12, HB.deckY, HB.quayZ - 0.03], [x + 0.12, HB.deckY + 0.03, HB.quayZ - 0.03], 0.012, 8, hex('#2b2e31'), MAT.steel);
+    G.sphere([x + 0.12, HB.deckY + 0.032, HB.quayZ - 0.03], 0.015, hex('#2b2e31'), MAT.steel, 8, 4, 0.7);
+  }
+  for (const x of [-2.1, -0.15, 0.7, 2.2]) {
+    for (const dx of [-0.018, 0.018]) G.box([x + dx, (HB.floor + HB.deckY) / 2 + 0.25, HB.quayZ + 0.008], [0.004, HB.deckY - HB.floor - 0.5, 0.004], hex('#9ea3a6'), MAT.steel);
+    for (let y = HB.deckY - 0.02; y > -0.25; y -= 0.04) G.box([x, y, HB.quayZ + 0.008], [0.04, 0.004, 0.004], hex('#9ea3a6'), MAT.steel);
+  }
+  // weed along the wall foot and on the floor
+  const tuft = (x, y, z, h, col) => { for (let k = 0; k < 4; k++) { const a = k * 0.8 + R(), dx = Math.cos(a) * 0.012, dz = Math.sin(a) * 0.012; G.tri([x - dz, y, z + dx], [x + dz, y, z - dx], [x + dx * 2, y + h * (0.7 + R() * 0.5), z + dz * 2], col, MAT.weed); } };
+  for (let x = -2.5; x < 2.5; x += 0.09 + R() * 0.1) tuft(x, hAt(x, HB.quayZ + 0.02), HB.quayZ + 0.02, 0.08 + R() * 0.12, hex(R() < 0.5 ? '#3f6b3a' : '#6b7a2e'));
+  for (let k = 0; k < 120; k++) { const x = (R() - 0.5) * 5, z = -1.0 + R() * 3.5; if (hAt(x, z) > -0.3) continue; tuft(x, hAt(x, z), z, 0.05 + R() * 0.12, hex(['#3f6b3a', '#6b7a2e', '#7a4a2a'][(R() * 3) | 0])); }
+  // stones, starfish, an anchor and chain, a lost tyre
+  for (let k = 0; k < 40; k++) { const x = (R() - 0.5) * 5, z = -0.95 + R() * 3.4; if (hAt(x, z) > -0.4) continue; G.sphere([x, hAt(x, z) + 0.01, z], 0.015 + R() * 0.025, hex(['#8d8a83', '#6f6c66', '#a29a8c'][(R() * 3) | 0]), MAT.rock, 7, 4, 0.6, 0.35, k + 9); }
+  const star = (x, z, r, col) => { const y = hAt(x, z) + 0.006, c = [x, y + 0.004, z]; for (let k = 0; k < 5; k++) { const a = k / 5 * Math.PI * 2 + R(), b = a + Math.PI / 5, d = a - Math.PI / 5; G.tri(c, [x + Math.cos(d) * r * 0.35, y, z + Math.sin(d) * r * 0.35], [x + Math.cos(a) * r, y, z + Math.sin(a) * r], col, MAT.star, [0, 1, 0]); G.tri(c, [x + Math.cos(a) * r, y, z + Math.sin(a) * r], [x + Math.cos(b) * r * 0.35, y, z + Math.sin(b) * r * 0.35], col, MAT.star, [0, 1, 0]); } };
+  for (const [x, z, c] of [[-0.6, 0.6, '#e2662b'], [0.2, 1.9, '#c8402f'], [-2.0, 2.2, '#e88a3a'], [1.0, -0.5, '#d65b2b'], [-1.5, 0.2, '#b8433a']]) star(x, z, 0.04, hex(c));
+  { // anchor
+    const ax = -1.75, az = 1.45, ay = hAt(ax, az);
+    G.at(0, [ax, ay, az], 0.6);
+    G.box([0, 0.012, 0], [0.012, 0.012, 0.16], hex('#3b3633'), MAT.steel);
+    G.box([0, 0.012, 0.08], [0.06, 0.012, 0.01], hex('#3b3633'), MAT.steel);
+    for (const s of [-1, 1]) G.box([s * 0.035, 0.012, -0.075], [0.04, 0.012, 0.012], hex('#3b3633'), MAT.steel);
+    for (let k = 0; k < 9; k++) G.box([0.012 * k, 0.006, 0.09 + k * 0.022], [0.01, 0.006, 0.018], hex('#4a403a'), MAT.steel);
+    G.T = null;
+  }
+  { const tx = 0.15, tz = 1.6, ty = hAt(tx, tz) + 0.02; for (let k = 0; k < 14; k++) { const a = k / 14 * Math.PI * 2, b = (k + 1) / 14 * Math.PI * 2; G.cyl([tx + Math.cos(a) * 0.045, ty, tz + Math.sin(a) * 0.045], [tx + Math.cos(b) * 0.045, ty, tz + Math.sin(b) * 0.045], 0.016, 6, rubber, MAT.rubber, false); } }
+  // bubbles caught in the jelly
+  for (let k = 0; k < 70; k++) { const x = (R() - 0.5) * 4.9, z = -1.0 + R() * 3.5, f = hAt(x, z); if (f > -0.15) continue; G.sphere([x, f + 0.05 + R() * (-f - 0.12), z], 0.004 + R() * 0.008, [1, 1, 1], MAT.bubble, 6, 4); }
+  // ── fishing quay: stone edge, shed, lamps, pier ──
+  G.box([1.48, HB.fishY + 0.008, HB.quayZ - 0.03], [2.24, 0.016, 0.06], hex('#9c968b'), MAT.masonry);
+  const S = L.shed; G.box([S.x, HB.fishY + S.h / 2, S.z], [S.w, S.h, S.d], hex('#7f9aa3'), MAT.corrugated);
+  G.gable([S.x, HB.fishY + S.h, S.z], S.w, S.d, S.roof, hex('#a7aaa8'), MAT.corrugated, 0.02);
+  for (const s of [-1, 1]) G.tri([S.x + s * S.w / 2, HB.fishY + S.h, S.z - S.d / 2], [S.x + s * S.w / 2, HB.fishY + S.h, S.z + S.d / 2], [S.x + s * S.w / 2, HB.fishY + S.h + S.roof, S.z], hex('#7f9aa3'), MAT.corrugated, [s, 0, 0]);
+  G.box([S.x, HB.fishY + 0.055, S.z + S.d / 2 + 0.001], [0.18, 0.11, 0.003], hex('#3a3633'), MAT.timber);
+  for (const l of L.lamps) {
+    G.cyl([l.x, l.y, l.z], [l.x, l.y + l.h, l.z], 0.006, 6, hex('#2e3a3f'), MAT.steel);
+    G.sphere([l.x, l.y + l.h, l.z], 0.016, hex('#fff2c8'), MAT.lamp, 8, 5);
+    G.cyl([l.x, l.y + l.h + 0.012, l.z], [l.x, l.y + l.h + 0.02, l.z], 0.018, 8, hex('#2e3a3f'), MAT.steel, true, 0.004);
+  }
+  const P = HB.pier;
+  for (let z = P.z0 + 0.01; z < P.z1; z += 0.03) G.box([(P.x0 + P.x1) / 2, P.y, z + 0.014], [P.x1 - P.x0, 0.012, 0.027], hex(R() < 0.5 ? '#8a6a48' : '#7b5d3f'), MAT.timber);
+  for (let z = P.z0 + 0.1; z <= P.z1; z += 0.22) for (const x of [P.x0 + 0.02, P.x1 - 0.02]) {
+    G.cyl([x, hAt(x, z) - 0.02, z], [x, P.y, z], 0.014, 8, hex('#5a4632'), MAT.timber);
+    if (z + 0.22 <= P.z1) { const yb = hAt(x, z), y0 = Math.max(yb + 0.05, -0.55), y1 = P.y - 0.03; G.cyl([x, y0, z], [x, y1, z + 0.22], 0.006, 5, hex('#5a4632'), MAT.timber); G.cyl([x, y1, z], [x, y0, z + 0.22], 0.006, 5, hex('#5a4632'), MAT.timber); }
+  }
+  for (let z = P.z0 + 0.05; z <= P.z1; z += 0.11) for (const x of [P.x0 + 0.005, P.x1 - 0.005]) G.box([x, P.y + 0.035, z], [0.006, 0.06, 0.006], hex('#5a4632'), MAT.timber);
+  for (const x of [P.x0 + 0.005, P.x1 - 0.005]) G.box([x, P.y + 0.065, (P.z0 + P.z1) / 2], [0.006, 0.006, P.z1 - P.z0], hex('#6b5238'), MAT.timber);
+  // ── town ──
+  for (const h of L.houses) {
+    G.box([h.x, h.y + h.h / 2 - 0.02, h.z], [h.w, h.h + 0.04, h.d], hex(h.color), MAT.paint);
+    G.gable([h.x, h.y + h.h, h.z], h.w, h.d, h.roof, h.slate ? hex('#4a5560') : hex('#a4442c'), h.slate ? MAT.slate : MAT.tiles);
+    for (const s of [-1, 1]) G.tri([h.x + s * h.w / 2, h.y + h.h, h.z - h.d / 2], [h.x + s * h.w / 2, h.y + h.h, h.z + h.d / 2], [h.x + s * h.w / 2, h.y + h.h + h.roof, h.z], hex(h.color), MAT.paint, [s, 0, 0]);
+    const nwin = Math.max(1, Math.round(h.w / 0.045));
+    for (let k = 0; k < nwin; k++) {
+      const wx = h.x - h.w / 2 + (k + 0.5) * h.w / nwin;
+      for (const wy of h.h > 0.13 ? [h.y + h.h * 0.35, h.y + h.h * 0.75] : [h.y + h.h * 0.55]) {
+        if (k === Math.floor(h.door * nwin) && wy < h.y + h.h * 0.5) { G.box([wx, h.y + 0.025, h.z + h.d / 2 + 0.002], [0.022, 0.05, 0.003], hex(h.color === '#efe9dd' ? '#3e5d73' : '#efe9dd'), MAT.paint); continue; }
+        G.box([wx, wy, h.z + h.d / 2 + 0.001], [0.022, 0.026, 0.002], white, MAT.paint);
+        G.box([wx, wy, h.z + h.d / 2 + 0.0025], [0.016, 0.02, 0.002], hex('#2a3946'), MAT.glass);
+      }
+    }
+    if (h.chimney) G.box([h.x + h.w * 0.25, h.y + h.h + h.roof * 0.75, h.z - h.d * 0.15], [0.016, 0.06, 0.016], hex('#7a4b3a'), MAT.masonry);
+  }
+  const C = L.church;
+  G.box([C.x, C.y + C.h / 2 - 0.02, C.z], [C.w, C.h + 0.04, C.d], white, MAT.paint);
+  G.at(0, [C.x, 0, C.z], Math.PI / 2); G.gable([0, C.y + C.h, 0], C.d, C.w, 0.13, hex('#4a5560'), MAT.slate); G.T = null;
+  for (const s of [-1, 1]) G.tri([C.x - C.w / 2, C.y + C.h, C.z + s * C.d / 2], [C.x + C.w / 2, C.y + C.h, C.z + s * C.d / 2], [C.x, C.y + C.h + 0.13, C.z + s * C.d / 2], white, MAT.paint, [0, 0, s]);
+  const tz = C.z + C.d / 2 - 0.06;
+  G.box([C.x, C.y + C.h + 0.08, tz], [0.1, C.h * 2 + 0.16 - C.h, 0.1], white, MAT.paint);
+  for (const s of [-1, 1]) G.box([C.x + s * 0.0505, C.y + C.h + 0.12, tz], [0.002, 0.04, 0.022], hex('#2a3946'), MAT.glass);
+  G.cyl([C.x, C.y + C.h + 0.16 + 0.0, tz], [C.x, C.y + C.h + C.spire, tz], 0.065, 8, hex('#6fa58d'), MAT.copper, true, 0.002);
+  G.box([C.x, C.y + C.h + C.spire + 0.03, tz], [0.003, 0.05, 0.003], hex('#c7a64a'), MAT.steel);
+  for (const t of L.trees) { G.cyl([t.x, t.y, t.z], [t.x, t.y + t.r * 1.2, t.z], 0.006, 5, hex('#5a4030'), MAT.timber); G.sphere([t.x, t.y + t.r * 1.9, t.z], t.r, hex(R() < 0.5 ? '#557a3c' : '#6d8a45'), MAT.foliage, 9, 6, 1.05, 0.25, (t.x * 100) | 0); }
+  // ── breakwater: crown wall, big rocks at the crest, small weedy ones below ──
+  const a = HB.bw.a, b = HB.bw.b, len = Math.hypot(b[0] - a[0], b[1] - a[1]), dir = [(b[0] - a[0]) / len, (b[1] - a[1]) / len], perp = [-dir[1], dir[0]];
+  G.at(0, [(a[0] + b[0]) / 2, 0, (a[1] + b[1]) / 2], Math.atan2(dir[1], dir[0]));
+  G.box([0, HB.bw.crest + 0.045, -0.02], [len, 0.09, 0.07], hex('#b2aea4'), MAT.concrete);
+  G.T = null;
+  for (let k = 0; k < 150; k++) {
+    const t = R(), off = (R() - 0.5) * 0.9, x = a[0] + dir[0] * len * t + perp[0] * off, z = a[1] + dir[1] * len * t + perp[1] * off;
+    if (Math.abs(x) > HB.half - 0.05 || Math.abs(z) > HB.half - 0.05) continue;
+    const y = hAt(x, z), big = Math.abs(off) < 0.25, r = big ? 0.045 + R() * 0.04 : 0.025 + R() * 0.03;
+    G.sphere([x, y + r * 0.3, z], r, hex(y < -0.05 ? (R() < 0.5 ? '#5e6a55' : '#6c6a60') : (R() < 0.5 ? '#9b978e' : '#86827a')), MAT.rock, 7, 5, 0.75, 0.35, k + 100);
+    if (!big && y < -0.08 && R() < 0.5) tuft(x, y + r * 0.6, z, 0.05 + R() * 0.07, hex('#556b34'));
+  }
+  // lighthouse: banded tower, gallery, lantern
+  const [lx, lz] = HB.light;
+  G.cyl([lx, -0.2, lz], [lx, HB.bw.crest + 0.06, lz], 0.15, 16, hex('#b0aca2'), MAT.concrete);
+  const bands = 5, ty0 = HB.bw.crest + 0.06, ty1 = 0.86;
+  for (let k = 0; k < bands; k++) { const y0 = lerp(ty0, ty1, k / bands), y1 = lerp(ty0, ty1, (k + 1) / bands); G.cyl([lx, y0, lz], [lx, y1, lz], lerp(0.075, 0.055, k / bands), 16, k % 2 ? white : hex('#c8352b'), MAT.paint, false, lerp(0.075, 0.055, (k + 1) / bands)); }
+  G.cyl([lx, ty1, lz], [lx, ty1 + 0.012, lz], 0.085, 16, hex('#2e3437'), MAT.steel);
+  for (let k = 0; k < 16; k++) { const ang = k / 16 * Math.PI * 2; G.box([lx + Math.cos(ang) * 0.08, ty1 + 0.035, lz + Math.sin(ang) * 0.08], [0.003, 0.045, 0.003], hex('#2e3437'), MAT.steel); }
+  G.cyl([lx, ty1 + 0.012, lz], [lx, ty1 + 0.09, lz], 0.045, 12, hex('#d6e6ee'), MAT.glass, false);
+  G.cyl([lx, ty1 + 0.09, lz], [lx, ty1 + 0.14, lz], 0.05, 12, hex('#c8352b'), MAT.paint, true, 0.004);
+  return G.build();
+}
+
+// ═══════════════════════════════ moving rigs (each in its own object frame) ═══════════════════════════════
+function buildRigs() {
+  const G = new Geo(), white = hex('#f3f1ea'), navy = hex('#22324f'), red = hex('#a9332b'), steel = hex('#6d7378'), black = hex('#1c1d1f');
+  // ── feeder ship (local: x forward, waterline y = 0, half beam B/2 along z) ──
+  G.at(OBJ.ship);
+  const SL = HB.ship.L, SB = HB.ship.B;
+  const st = 26, half = x => { const t = (x + SL / 2) / SL; const bowT = t > 0.82 ? Math.sqrt(Math.max(0, 1 - ((t - 0.82) / 0.18) ** 2)) : 1, sternT = t < 0.06 ? 0.86 + 0.14 * t / 0.06 : 1; return SB / 2 * Math.min(bowT, sternT); };
+  const ys = [-0.12, -0.1, -0.05, 0.0, 0.05, 0.1];
+  const secW = (x, y) => half(x) * (y < -0.08 ? lerp(0.55, 0.92, (y + 0.12) / 0.04) : 1) * (x > SL / 2 - 0.12 ? 1 + 0.25 * (y + 0.12) : 1);
+  for (let k = 0; k < st; k++) {
+    const x0 = -SL / 2 + SL * k / st, x1 = -SL / 2 + SL * (k + 1) / st;
+    for (let j = 0; j < ys.length - 1; j++) for (const sgn of [-1, 1]) {
+      const y0 = ys[j], y1 = ys[j + 1], col = y1 <= 0.03 ? red : navy;
+      const p = (x, y) => [x, y, sgn * secW(x, y)];
+      if (sgn > 0) G.quad(p(x0, y0), p(x1, y0), p(x1, y1), p(x0, y1), col, MAT.hull); else G.quad(p(x0, y1), p(x1, y1), p(x1, y0), p(x0, y0), col, MAT.hull);
+    }
+    G.quad([x0, -0.12, -secW(x0, -0.12)], [x1, -0.12, -secW(x1, -0.12)], [x1, -0.12, secW(x1, -0.12)], [x0, -0.12, secW(x0, -0.12)], red, MAT.hull, [0, -1, 0]);
+    G.quad([x0, 0.1, secW(x0, 0.1)], [x1, 0.1, secW(x1, 0.1)], [x1, 0.1, -secW(x1, 0.1)], [x0, 0.1, -secW(x0, 0.1)], hex('#7b3a33'), MAT.paint, [0, 1, 0]);
+  }
+  G.quad([-SL / 2, -0.12, secW(-SL / 2, -0.12)], [-SL / 2, 0.1, secW(-SL / 2, 0.1)], [-SL / 2, 0.1, -secW(-SL / 2, 0.1)], [-SL / 2, -0.12, -secW(-SL / 2, -0.12)], navy, MAT.hull, [-1, 0, 0]);
+  G.box([SL / 2 - 0.1, 0.125, 0], [0.16, 0.05, SB * 0.55], white, MAT.paint); // forecastle
+  // accommodation block with bridge wings, funnel with a yellow band, mast
+  const ax = -SL / 2 + 0.13;
+  G.box([ax, 0.21, 0], [0.18, 0.22, SB * 0.78], white, MAT.paint);
+  G.box([ax + 0.02, 0.35, 0], [0.13, 0.06, SB * 0.9], white, MAT.paint);
+  G.box([ax + 0.02, 0.33, 0], [0.13, 0.008, SB + 0.06], white, MAT.paint);
+  for (const s of [-1, 1]) G.box([ax + 0.086, 0.35, s * SB * 0.3], [0.002, 0.03, SB * 0.3], hex('#1f2b36'), MAT.glass);
+  G.box([ax + 0.091, 0.25, 0], [0.002, 0.12, SB * 0.6], hex('#2a3946'), MAT.glass);
+  G.cyl([ax - 0.05, 0.38, 0], [ax - 0.05, 0.5, 0], 0.035, 10, white, MAT.paint);
+  G.cyl([ax - 0.05, 0.44, 0], [ax - 0.05, 0.47, 0], 0.0355, 10, hex('#e8b62a'), MAT.paint, false);
+  G.cyl([ax - 0.05, 0.5, 0], [ax - 0.05, 0.515, 0], 0.036, 10, black, MAT.paint);
+  G.cyl([ax + 0.03, 0.38, 0], [ax + 0.03, 0.68, 0], 0.005, 5, white, MAT.steel);
+  G.box([ax + 0.03, 0.62, 0], [0.004, 0.004, 0.08], white, MAT.steel);
+  // hatch coamings under the boxes and a rudder
+  for (let b = 0; b < 6; b++) G.box([HB.shipSlots.bayX0 + b * HB.shipSlots.bayDX, 0.103, 0], [0.19, 0.006, SB * 0.92], hex('#3b4c5e'), MAT.steel);
+  G.box([-SL / 2 + 0.02, -0.08, 0], [0.04, 0.08, 0.006], red, MAT.hull);
+  G.at(OBJ.radar); G.box([0, 0, 0], [0.006, 0.006, 0.08], hex('#2b2e31'), MAT.steel); G.box([0, -0.012, 0], [0.006, 0.02, 0.006], hex('#2b2e31'), MAT.steel);
+  G.at(OBJ.prop); for (let k = 0; k < 4; k++) { const a = k * Math.PI / 2; G.quad([0, 0, 0], [0.004, Math.cos(a) * 0.04, Math.sin(a) * 0.04], [0, Math.cos(a + 0.6) * 0.04, Math.sin(a + 0.6) * 0.04], [0, 0, 0], hex('#b58a3a'), MAT.steel); G.quad([0, 0, 0], [0, Math.cos(a + 0.6) * 0.04, Math.sin(a + 0.6) * 0.04], [0.004, Math.cos(a) * 0.04, Math.sin(a) * 0.04], [0, 0, 0], hex('#b58a3a'), MAT.steel); }
+  G.sphere([0, 0, 0], 0.01, hex('#b58a3a'), MAT.steel, 6, 4);
+  // ── tug: black hull, white and red superstructure, tyre fenders, big bow fender ──
+  G.at(OBJ.tug);
+  const TL = HB.tug.L, TB = HB.tug.B, th = x => { const t = (x + TL / 2) / TL; return TB / 2 * (t > 0.7 ? Math.sqrt(Math.max(0.05, 1 - ((t - 0.7) / 0.3) ** 2)) : t < 0.1 ? 0.88 + 1.2 * t : 1); };
+  for (let k = 0; k < 14; k++) {
+    const x0 = -TL / 2 + TL * k / 14, x1 = -TL / 2 + TL * (k + 1) / 14;
+    for (const [y0, y1, col] of [[-0.08, -0.02, red], [-0.02, 0.06, black]]) {
+      G.quad([x0, y0, th(x0) * (y0 < -0.05 ? 0.7 : 1)], [x1, y0, th(x1) * (y0 < -0.05 ? 0.7 : 1)], [x1, y1, th(x1)], [x0, y1, th(x0)], col, MAT.hull);
+      G.quad([x0, y1, -th(x0)], [x1, y1, -th(x1)], [x1, y0, -th(x1) * (y0 < -0.05 ? 0.7 : 1)], [x0, y0, -th(x0) * (y0 < -0.05 ? 0.7 : 1)], col, MAT.hull);
+    }
+    G.quad([x0, 0.06, th(x0)], [x1, 0.06, th(x1)], [x1, 0.06, -th(x1)], [x0, 0.06, -th(x0)], hex('#6e3a2e'), MAT.paint, [0, 1, 0]);
+    G.quad([x0, -0.08, -th(x0) * 0.7], [x1, -0.08, -th(x1) * 0.7], [x1, -0.08, th(x1) * 0.7], [x0, -0.08, th(x0) * 0.7], red, MAT.hull, [0, -1, 0]);
+    if (k % 2 === 0) for (const s of [-1, 1]) G.cyl([(x0 + x1) / 2, 0.035, s * (th((x0 + x1) / 2) + 0.008)], [(x0 + x1) / 2 + 0.001, 0.035, s * (th((x0 + x1) / 2) + 0.008)], 0.013, 8, black, MAT.rubber);
+  }
+  G.box([-TL / 2, -0.01, 0], [0.004, 0.14, TB * 0.86], black, MAT.hull);
+  G.cyl([TL / 2 - 0.005, 0.04, -TB * 0.35], [TL / 2 - 0.005, 0.04, TB * 0.35], 0.024, 10, black, MAT.rubber);
+  G.box([0.02, 0.1, 0], [0.16, 0.08, TB * 0.7], white, MAT.paint);
+  G.box([0.04, 0.165, 0], [0.11, 0.05, TB * 0.62], white, MAT.paint);
+  G.box([0.096, 0.165, 0], [0.002, 0.025, TB * 0.5], hex('#24323e'), MAT.glass);
+  G.box([0.04, 0.193, 0], [0.12, 0.006, TB * 0.66], red, MAT.paint);
+  G.cyl([-0.06, 0.14, 0], [-0.06, 0.23, 0], 0.016, 8, red, MAT.paint); G.cyl([-0.06, 0.23, 0], [-0.06, 0.24, 0], 0.017, 8, black, MAT.paint);
+  G.cyl([0.04, 0.2, 0], [0.04, 0.26, 0], 0.003, 4, white, MAT.steel);
+  G.at(OBJ.tugProp); G.cyl([-0.003, 0, 0], [0.003, 0, 0], 0.025, 5, hex('#b58a3a'), MAT.steel);
+  // lighthouse lamp: a bright lens and two beams of a rotating optic
+  G.at(OBJ.lamp); G.cyl([0, -0.03, 0], [0, 0.03, 0], 0.022, 10, hex('#fff4d0'), MAT.lamp); for (const s of [-1, 1]) G.box([s * 0.03, 0, 0], [0.025, 0.012, 0.012], hex('#ffe9a8'), MAT.lamp);
+  // ── STS cranes: gantry (legs, girder, backreach, A-frame, machinery house), boom, trolley + cab, spreader ──
+  for (const [k, colour] of [[0, '#c3392f'], [1, '#2f5f9e']]) {
+    const base = k ? OBJ.craneB : OBJ.craneA, col = hex(colour), C = HB.crane, gy = C.girderY - HB.deckY, wL = C.legW / 2;
+    G.at(base); // origin: (x, deck level, 0) in world z
+    for (const z of [C.railW, C.railL]) for (const x of [-wL, wL]) { G.box([x, gy / 2, z], [0.03, gy, 0.03], col, MAT.paint); G.box([x, 0.012, z], [0.05, 0.024, 0.06], hex('#3d4246'), MAT.steel); }
+    for (const z of [C.railW, C.railL]) G.box([0, gy * 0.45, z], [C.legW, 0.025, 0.025], col, MAT.paint);
+    for (const x of [-wL, wL]) { G.box([x, gy, (C.railL + C.backZ) / 2 - 0.02], [0.026, 0.04, C.railL - C.backZ + 0.08], col, MAT.paint); G.box([x, gy * 0.72, (C.railW + C.railL) / 2], [0.02, 0.02, C.railW - C.railL], col, MAT.paint); }
+    G.box([0, gy + 0.05, C.backZ + 0.08], [C.legW + 0.04, 0.09, 0.14], hex('#e9e4d8'), MAT.paint); // machinery house
+    const ay = C.apexY - HB.deckY;
+    for (const x of [-wL, wL]) { G.cyl([x, gy, C.railW], [x * 0.6, ay, (C.railW + C.railL) / 2], 0.011, 6, col, MAT.paint); G.cyl([x, gy, C.railL], [x * 0.6, ay, (C.railW + C.railL) / 2], 0.011, 6, col, MAT.paint); }
+    G.box([0, ay, (C.railW + C.railL) / 2], [C.legW * 0.7, 0.02, 0.03], col, MAT.paint);
+    G.box([wL + 0.03, gy - 0.12, C.railL + 0.04], [0.05, 0.05, 0.06], hex('#e9e4d8'), MAT.paint);
+    G.at(base + 1); // boom: hinge at origin, along +z, horizontal when down
+    const bl = C.boomTip - C.railW;
+    for (const x of [-wL, wL]) G.box([x, 0, bl / 2], [0.024, 0.036, bl], col, MAT.paint);
+    for (let z = 0.06; z < bl; z += 0.12) G.box([0, 0.012, z], [C.legW, 0.01, 0.01], col, MAT.paint);
+    G.box([0, 0.01, bl - 0.01], [C.legW + 0.02, 0.04, 0.02], col, MAT.paint);
+    G.at(base + 2); // trolley with a hanging cab
+    G.box([0, -0.03, 0], [C.legW - 0.04, 0.025, 0.07], hex('#d8d3c6'), MAT.paint);
+    G.box([wL - 0.06, -0.09, 0.02], [0.05, 0.05, 0.05], hex('#e9e4d8'), MAT.paint);
+    G.box([wL - 0.06, -0.09, 0.046], [0.04, 0.03, 0.002], hex('#22303c'), MAT.glass);
+    G.at(base + 3); // spreader: its bottom at the origin
+    G.box([0, 0.01, 0], [HB.box.L + 0.01, 0.018, HB.box.W + 0.006], hex('#e8b62a'), MAT.paint);
+    G.box([0, 0.028, 0], [0.06, 0.02, 0.05], hex('#e8b62a'), MAT.paint);
+  }
+  // ── yachts: white hull, coloured stripe, fin keel, mast with a furled sail ──
+  for (const [k, stripe] of [[0, '#2f6fa8'], [1, '#c8402f']]) {
+    G.at(OBJ.yacht + k);
+    const YL = 0.32, YB = 0.11, yh = x => { const t = (x + YL / 2) / YL; return YB / 2 * Math.sqrt(Math.max(0.02, Math.sin(Math.PI * Math.min(1, t * 0.9 + 0.1)))); };
+    for (let s = 0; s < 12; s++) {
+      const x0 = -YL / 2 + YL * s / 12, x1 = -YL / 2 + YL * (s + 1) / 12;
+      for (const [y0, y1, col] of [[-0.025, 0.012, white], [0.012, 0.02, hex(stripe)], [0.02, 0.03, white]]) {
+        const k0 = y0 < 0 ? 0.6 : 1;
+        G.quad([x0, y0, yh(x0) * k0], [x1, y0, yh(x1) * k0], [x1, y1, yh(x1)], [x0, y1, yh(x0)], col, MAT.hull);
+        G.quad([x0, y1, -yh(x0)], [x1, y1, -yh(x1)], [x1, y0, -yh(x1) * k0], [x0, y0, -yh(x0) * k0], col, MAT.hull);
+      }
+      G.quad([x0, 0.03, yh(x0)], [x1, 0.03, yh(x1)], [x1, 0.03, -yh(x1)], [x0, 0.03, -yh(x0)], hex('#d9cfbf'), MAT.timber, [0, 1, 0]);
+    }
+    G.box([0.0, -0.075, 0], [0.06, 0.1, 0.006], white, MAT.hull); G.box([0.0, -0.13, 0], [0.07, 0.012, 0.02], hex('#3a3f44'), MAT.steel);
+    G.box([-0.02, 0.05, 0], [0.08, 0.04, 0.06], white, MAT.paint);
+    G.cyl([0.02, 0.03, 0], [0.02, 0.5, 0], 0.003, 4, hex('#c9ccd0'), MAT.steel);
+    G.cyl([0.02, 0.08, 0], [-0.13, 0.08, 0], 0.012, 6, hex('#2e4a6b'), MAT.paint);
+  }
+  // ── fishing boats ──
+  for (const [k, colour] of [[0, '#3f7a74'], [1, '#c58a2e']]) {
+    G.at(OBJ.boat + k);
+    const BL = 0.3, BB = 0.11, bh = x => { const t = (x + BL / 2) / BL; return BB / 2 * (t > 0.65 ? Math.sqrt(Math.max(0.04, 1 - ((t - 0.65) / 0.35) ** 2)) : 1); };
+    for (let s = 0; s < 12; s++) {
+      const x0 = -BL / 2 + BL * s / 12, x1 = -BL / 2 + BL * (s + 1) / 12;
+      for (const [y0, y1, col] of [[-0.04, 0.0, hex('#8c2e26')], [0.0, 0.045, hex(colour)]]) {
+        G.quad([x0, y0, bh(x0) * (y0 < 0 ? 0.7 : 1)], [x1, y0, bh(x1) * (y0 < 0 ? 0.7 : 1)], [x1, y1, bh(x1)], [x0, y1, bh(x0)], col, MAT.hull);
+        G.quad([x0, y1, -bh(x0)], [x1, y1, -bh(x1)], [x1, y0, -bh(x1) * (y0 < 0 ? 0.7 : 1)], [x0, y0, -bh(x0) * (y0 < 0 ? 0.7 : 1)], col, MAT.hull);
+      }
+      G.quad([x0, 0.045, bh(x0)], [x1, 0.045, bh(x1)], [x1, 0.045, -bh(x1)], [x0, 0.045, -bh(x0)], hex('#8a6a48'), MAT.timber, [0, 1, 0]);
+    }
+    G.box([-0.06, 0.08, 0], [0.07, 0.07, 0.07], white, MAT.paint); G.box([-0.024, 0.09, 0], [0.002, 0.025, 0.05], hex('#22303c'), MAT.glass);
+    G.cyl([0.06, 0.045, 0], [0.06, 0.22, 0], 0.003, 4, hex('#c9ccd0'), MAT.steel); G.box([0.1, 0.06, 0], [0.04, 0.03, 0.05], hex('#e05a2a'), MAT.paint);
+  }
+  // ── buoys: two yellow mooring buoys and a green channel buoy ──
+  for (let k = 0; k < 3; k++) {
+    G.at(OBJ.buoy + k);
+    if (k < 2) G.sphere([0, 0.0, 0], 0.03, hex('#e8bf2a'), MAT.paint, 10, 6, 0.85);
+    else { G.cyl([0, -0.02, 0], [0, 0.06, 0], 0.035, 10, hex('#2f8a4a'), MAT.paint, true, 0.028); G.cyl([0, 0.06, 0], [0, 0.11, 0], 0.012, 8, hex('#2f8a4a'), MAT.paint, true, 0.0); G.sphere([0, 0.115, 0], 0.008, hex('#bdf2b0'), MAT.lamp, 6, 4); }
+  }
+  // ── lifebuoys: orange and white ring ──
+  for (let k = 0; k < 3; k++) {
+    G.at(OBJ.lifebuoy + k);
+    const R0 = 0.05, r = 0.016, n = 16, m = 8;
+    for (let i = 0; i < n; i++) for (let j = 0; j < m; j++) {
+      const p = (a, b) => [Math.cos(a) * (R0 + Math.cos(b) * r), Math.sin(b) * r, Math.sin(a) * (R0 + Math.cos(b) * r)], q = (a, b) => [Math.cos(a) * Math.cos(b), Math.sin(b), Math.sin(a) * Math.cos(b)];
+      const a0 = i / n * 2 * Math.PI, a1 = (i + 1) / n * 2 * Math.PI, b0 = j / m * 2 * Math.PI, b1 = (j + 1) / m * 2 * Math.PI, col = (i >> 2) % 2 ? white : hex('#ee5a1e');
+      const v = [G.vert(p(a0, b0), q(a0, b0), col, MAT.paint), G.vert(p(a1, b0), q(a1, b0), col, MAT.paint), G.vert(p(a1, b1), q(a1, b1), col, MAT.paint), G.vert(p(a0, b1), q(a0, b1), col, MAT.paint)];
+      G.i.push(v[0], v[2], v[1], v[0], v[3], v[2]);
+    }
+  }
+  return G.build();
+}
+
+// ═══════════════════════════════ instanced meshes ═══════════════════════════════
+function buildContainer() { // origin at the bottom centre; door end at +x
+  const G = new Geo(), { L, H, W } = HB.box;
+  G.box([0, H / 2, 0], [L - 0.004, H - 0.004, W - 0.004], [1, 1, 1], 20);
+  for (const x of [-1, 1]) for (const z of [-1, 1]) G.box([x * (L / 2 - 0.004), H / 2, z * (W / 2 - 0.004)], [0.008, H, 0.008], [0.25, 0.25, 0.25], 21);
+  for (const y of [0.004, H - 0.004]) for (const z of [-1, 1]) G.box([0, y, z * (W / 2 - 0.004)], [L, 0.008, 0.008], [0.25, 0.25, 0.25], 21);
+  return G.build();
+}
+function buildFish() { // along +x, ~1 unit long scaled per instance
+  const G = new Geo(), seg = 8, ring = 6;
+  for (let i = 0; i < seg; i++) for (let j = 0; j < ring; j++) {
+    const prof = t => Math.sin(Math.PI * Math.min(1, t * 1.05)) ** 0.8 * (1 - 0.35 * t), x = t => 0.5 - t;
+    const p = (t, a) => [x(t), Math.cos(a) * 0.12 * prof(t), Math.sin(a) * 0.06 * prof(t)], n = a => [0, Math.cos(a), Math.sin(a)];
+    const t0 = i / seg, t1 = (i + 1) / seg, a0 = j / ring * 2 * Math.PI, a1 = (j + 1) / ring * 2 * Math.PI;
+    const v = [G.vert(p(t0, a0), n(a0), [1, 1, 1], 22), G.vert(p(t1, a0), n(a0), [1, 1, 1], 22), G.vert(p(t1, a1), n(a1), [1, 1, 1], 22), G.vert(p(t0, a1), n(a1), [1, 1, 1], 22)];
+    G.i.push(v[0], v[2], v[1], v[0], v[3], v[2]);
+  }
+  G.tri([-0.45, 0, 0], [-0.62, 0.11, 0], [-0.62, -0.11, 0], [1, 1, 1], 22, [0, 0, 1]); G.tri([-0.45, 0, 0], [-0.62, -0.11, 0], [-0.62, 0.11, 0], [1, 1, 1], 22, [0, 0, -1]);
+  return G.build();
+}
+function buildGull() { // body along +x; wings are mat 31 (they flap), the rest 30
+  const G = new Geo(), wh = hex('#f4f2ee'), grey = hex('#9aa3ab'), blk = hex('#1e1e1e'), yel = hex('#e8c02a');
+  G.sphere([0, 0, 0], 0.03, wh, 30, 8, 5, 0.65); G.sphere([0.032, 0.012, 0], 0.014, wh, 30, 6, 4);
+  G.cyl([0.045, 0.01, 0], [0.065, 0.006, 0], 0.004, 4, yel, 30, true, 0.0015);
+  G.box([0.052, 0.006, 0], [0.004, 0.004, 0.006], hex('#c8352b'), 30);
+  G.tri([-0.025, 0.002, 0.012], [-0.055, 0.0, 0.0], [-0.025, 0.002, -0.012], grey, 30, [0, 1, 0]);
+  for (const s of [-1, 1]) {
+    const q = (x, z) => [x, 0.006, s * z];
+    const tri = (a, b, c, col) => s > 0 ? G.tri(a, b, c, col, 31, [0, 1, 0]) : G.tri(a, c, b, col, 31, [0, 1, 0]);
+    tri(q(0.02, 0.01), q(-0.02, 0.01), q(-0.03, 0.07), grey); tri(q(0.02, 0.01), q(-0.03, 0.07), q(0.0, 0.08), grey);
+    tri(q(0.0, 0.08), q(-0.03, 0.07), q(-0.04, 0.11), blk); tri(q(-0.04, 0.11), q(-0.03, 0.07), q(-0.05, 0.09), blk);
+  }
+  return G.build();
+}
+function buildJelly() { // bell (mat 40), pink rings (41), oral arms (42), tentacles (43)
+  const G = new Geo(), seg = 14, rows = 5;
+  for (let j = 0; j < rows; j++) for (let i = 0; i < seg; i++) {
+    const p = (t, a) => [Math.cos(a) * Math.sin(t * Math.PI / 2) * 1.0, Math.cos(t * Math.PI / 2) * 0.55, Math.sin(a) * Math.sin(t * Math.PI / 2) * 1.0], n = (t, a) => norm([Math.cos(a) * Math.sin(t * Math.PI / 2), Math.cos(t * Math.PI / 2) * 1.6, Math.sin(a) * Math.sin(t * Math.PI / 2)]);
+    const t0 = j / rows, t1 = (j + 1) / rows, a0 = i / seg * 2 * Math.PI, a1 = (i + 1) / seg * 2 * Math.PI;
+    const v = [G.vert(p(t0, a0), n(t0, a0), [1, 1, 1], 40), G.vert(p(t1, a0), n(t1, a0), [1, 1, 1], 40), G.vert(p(t1, a1), n(t1, a1), [1, 1, 1], 40), G.vert(p(t0, a1), n(t0, a1), [1, 1, 1], 40)];
+    G.i.push(v[0], v[1], v[2], v[0], v[2], v[3]);
+  }
+  for (let k = 0; k < 4; k++) { const a = k * Math.PI / 2 + 0.4; for (let s = 0; s < 8; s++) { const t0 = s / 8 * Math.PI * 2, t1 = (s + 1) / 8 * Math.PI * 2, c = [Math.cos(a) * 0.32, 0.45, Math.sin(a) * 0.32]; G.tri(c, [c[0] + Math.cos(t0) * 0.13, 0.43, c[2] + Math.sin(t0) * 0.13], [c[0] + Math.cos(t1) * 0.13, 0.43, c[2] + Math.sin(t1) * 0.13], hex('#e7a0c0'), 41, [0, 1, 0]); } }
+  for (let k = 0; k < 4; k++) { const a = k * Math.PI / 2 + 0.78; for (let s = 0; s < 6; s++) { const y0 = -s * 0.14, y1 = -(s + 1) * 0.14, w = 0.12 * (1 - s / 7); G.quad([Math.cos(a) * 0.1 - Math.sin(a) * w, y0, Math.sin(a) * 0.1 + Math.cos(a) * w], [Math.cos(a) * 0.1 + Math.sin(a) * w, y0, Math.sin(a) * 0.1 - Math.cos(a) * w], [Math.cos(a) * 0.12 + Math.sin(a) * w * 0.8, y1, Math.sin(a) * 0.12 - Math.cos(a) * w * 0.8], [Math.cos(a) * 0.12 - Math.sin(a) * w * 0.8, y1, Math.sin(a) * 0.12 + Math.cos(a) * w * 0.8], hex('#f2d6e2'), 42, [Math.cos(a), 0, Math.sin(a)]); } }
+  for (let k = 0; k < 24; k++) { const a = k / 24 * Math.PI * 2, x = Math.cos(a), z = Math.sin(a); G.quad([x * 0.98, 0, z * 0.98], [x * 0.98 + 0.02, 0, z * 0.98], [x * 0.95 + 0.01, -0.9, z * 0.95], [x * 0.95, -0.9, z * 0.95], hex('#f6eef2'), 43, [x, 0, z]); }
+  return G.build();
+}
+function buildPuff() { const G = new Geo(); G.sphere([0, 0, 0], 1, [1, 1, 1], 50, 10, 7); return G.build(); }
+// ═══════════════════════════════ math ═══════════════════════════════
+const V3 = {
+  sub: (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]], add: (a, b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]],
+  scale: (a, s) => [a[0] * s, a[1] * s, a[2] * s], dot: (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2],
+  cross: (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]],
+  len: a => Math.hypot(a[0], a[1], a[2]), norm: a => { const l = Math.hypot(a[0], a[1], a[2]) || 1; return [a[0] / l, a[1] / l, a[2] / l]; },
+};
+// column-major 4×4
+const M4 = {
+  id() { return Float32Array.of(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1); },
+  mul(a, b) { const o = new Float32Array(16); for (let c = 0; c < 4; c++) for (let r = 0; r < 4; r++) { let s = 0; for (let k = 0; k < 4; k++) s += a[k * 4 + r] * b[c * 4 + k]; o[c * 4 + r] = s; } return o; },
+  persp(fovy, aspect, n, f, sx = 0, sy = 0) { const t = 1 / Math.tan(fovy / 2), o = new Float32Array(16); o[0] = t / aspect; o[5] = t; o[8] = -sx; o[9] = -sy; o[10] = f / (n - f); o[11] = -1; o[14] = n * f / (n - f); return o; },
+  ortho(l, r, b, t, n, f) { const o = new Float32Array(16); o[0] = 2 / (r - l); o[5] = 2 / (t - b); o[10] = 1 / (n - f); o[12] = -(r + l) / (r - l); o[13] = -(t + b) / (t - b); o[14] = n / (n - f); o[15] = 1; return o; },
+  lookAt(e, c, up) {
+    const z = V3.norm(V3.sub(e, c)), x = V3.norm(V3.cross(up, z)), y = V3.cross(z, x), o = new Float32Array(16);
+    o[0] = x[0]; o[4] = x[1]; o[8] = x[2]; o[1] = y[0]; o[5] = y[1]; o[9] = y[2]; o[2] = z[0]; o[6] = z[1]; o[10] = z[2];
+    o[12] = -V3.dot(x, e); o[13] = -V3.dot(y, e); o[14] = -V3.dot(z, e); o[15] = 1; return o;
+  },
+  inv(m) {
+    const o = new Float32Array(16), a = m;
+    const b00 = a[0] * a[5] - a[1] * a[4], b01 = a[0] * a[6] - a[2] * a[4], b02 = a[0] * a[7] - a[3] * a[4], b03 = a[1] * a[6] - a[2] * a[5];
+    const b04 = a[1] * a[7] - a[3] * a[5], b05 = a[2] * a[7] - a[3] * a[6], b06 = a[8] * a[13] - a[9] * a[12], b07 = a[8] * a[14] - a[10] * a[12];
+    const b08 = a[8] * a[15] - a[11] * a[12], b09 = a[9] * a[14] - a[10] * a[13], b10 = a[9] * a[15] - a[11] * a[13], b11 = a[10] * a[15] - a[11] * a[14];
+    const d = 1 / (b00 * b11 - b01 * b10 + b02 * b09 + b03 * b08 - b04 * b07 + b05 * b06);
+    o[0] = (a[5] * b11 - a[6] * b10 + a[7] * b09) * d; o[1] = (a[2] * b10 - a[1] * b11 - a[3] * b09) * d; o[2] = (a[13] * b05 - a[14] * b04 + a[15] * b03) * d; o[3] = (a[10] * b04 - a[9] * b05 - a[11] * b03) * d;
+    o[4] = (a[6] * b08 - a[4] * b11 - a[7] * b07) * d; o[5] = (a[0] * b11 - a[2] * b08 + a[3] * b07) * d; o[6] = (a[14] * b02 - a[12] * b05 - a[15] * b01) * d; o[7] = (a[8] * b05 - a[10] * b02 + a[11] * b01) * d;
+    o[8] = (a[4] * b10 - a[5] * b08 + a[7] * b06) * d; o[9] = (a[1] * b08 - a[0] * b10 - a[3] * b06) * d; o[10] = (a[12] * b04 - a[13] * b02 + a[15] * b00) * d; o[11] = (a[9] * b02 - a[8] * b04 - a[11] * b00) * d;
+    o[12] = (a[5] * b07 - a[4] * b09 - a[6] * b06) * d; o[13] = (a[0] * b09 - a[1] * b07 + a[2] * b06) * d; o[14] = (a[13] * b01 - a[12] * b03 - a[14] * b00) * d; o[15] = (a[8] * b03 - a[9] * b01 + a[10] * b00) * d;
+    return o;
+  },
+  xform(m, p) { const w = m[3] * p[0] + m[7] * p[1] + m[11] * p[2] + m[15]; return [(m[0] * p[0] + m[4] * p[1] + m[8] * p[2] + m[12]) / w, (m[1] * p[0] + m[5] * p[1] + m[9] * p[2] + m[13]) / w, (m[2] * p[0] + m[6] * p[1] + m[10] * p[2] + m[14]) / w]; },
+  // rotation by a quaternion about a pivot
+  rotAbout(q, pv) {
+    const [x, y, z, w] = q, o = M4.id();
+    o[0] = 1 - 2 * (y * y + z * z); o[1] = 2 * (x * y + z * w); o[2] = 2 * (x * z - y * w);
+    o[4] = 2 * (x * y - z * w); o[5] = 1 - 2 * (x * x + z * z); o[6] = 2 * (y * z + x * w);
+    o[8] = 2 * (x * z + y * w); o[9] = 2 * (y * z - x * w); o[10] = 1 - 2 * (x * x + y * y);
+    o[12] = pv[0] - (o[0] * pv[0] + o[4] * pv[1] + o[8] * pv[2]); o[13] = pv[1] - (o[1] * pv[0] + o[5] * pv[1] + o[9] * pv[2]); o[14] = pv[2] - (o[2] * pv[0] + o[6] * pv[1] + o[10] * pv[2]);
+    return o;
+  },
+};
+const lin3 = h => hex(h);
+
+// ═══════════════════════════════ WGSL ═══════════════════════════════
+const f = v => Number(v).toFixed(5);
+const WGSL_C = /* wgsl */`
+const PI = 3.14159265;
+const HALF = ${f(HB.half)}; const BOT = ${f(HB.bottom)}; const SEAN = ${f(HB.N)}; const SEADX = ${f(2 * HB.half / HB.N)};
+const QZ = ${f(HB.quayZ)}; const SPLITX = ${f(HB.splitX)}; const HILLZ = ${f(HB.hillZ)};
+struct U {
+  viewProj: mat4x4f, view: mat4x4f, invViewProj: mat4x4f, lightVP: mat4x4f, model: mat4x4f,
+  cam: vec4f, light: vec4f, screen: vec4f, wob: vec4f, sea: vec4f, water: vec4f, scatter: vec4f,
+  strata0: vec4f, strata1: vec4f, strata2: vec4f, bg: vec4f, misc: vec4f,
+  objs: array<vec4f, ${OBJ.count * 2}>,
+};
+@group(0) @binding(0) var<uniform> u: U;
+@group(0) @binding(3) var seaTex: texture_2d<f32>;
+const KEYDIR = vec3f(-0.4655, 0.7758, 0.4255);
+const RIMDIR = vec3f(0.62, 0.48, -0.62);
+const FILLDIR = vec3f(0.85, 0.36, 0.38);
+fn hash1(p: vec3f) -> f32 { return fract(sin(dot(p, vec3f(12.9898, 78.233, 37.719))) * 43758.5453); }
+fn hash3(p: vec3f) -> vec3f {
+  let q = vec3f(dot(p, vec3f(127.1, 311.7, 74.7)), dot(p, vec3f(269.5, 183.3, 246.1)), dot(p, vec3f(113.5, 271.9, 124.6)));
+  return fract(sin(q) * 43758.5453);
+}
+fn noise3(p: vec3f) -> f32 {
+  let i = floor(p); let f = fract(p); let w = f * f * (3.0 - 2.0 * f);
+  return mix(mix(mix(hash1(i), hash1(i + vec3f(1, 0, 0)), w.x), mix(hash1(i + vec3f(0, 1, 0)), hash1(i + vec3f(1, 1, 0)), w.x), w.y),
+             mix(mix(hash1(i + vec3f(0, 0, 1)), hash1(i + vec3f(1, 0, 1)), w.x), mix(hash1(i + vec3f(0, 1, 1)), hash1(i + vec3f(1, 1, 1)), w.x), w.y), w.z);
+}
+fn voro2(p: vec2f, t: f32) -> vec3f { // F1, F2, cell id; feature points drift with t
+  let i = floor(p); let f = fract(p);
+  var d1 = 8.0; var d2 = 8.0; var id = 0.0;
+  for (var y = -1; y <= 1; y++) { for (var x = -1; x <= 1; x++) {
+    let g = vec2f(f32(x), f32(y)); let h = hash3(vec3f(i + g, 0.0));
+    let o = 0.5 + 0.42 * sin(vec2f(t) * (0.6 + h.z * 0.5) + 6.2831 * h.xy);
+    let r = g + o - f; let d = dot(r, r);
+    if (d < d1) { d2 = d1; d1 = d; id = h.z; } else if (d < d2) { d2 = d; }
+  } }
+  return vec3f(sqrt(d1), sqrt(d2), id);
+}
+fn softbox(d: vec3f, c: vec3f, s: vec2f, r: f32) -> f32 {
+  let k = dot(d, c);
+  if (k <= 0.05) { return 0.0; }
+  let t1 = normalize(cross(c, vec3f(0.0013, 1.0, 0.0007)));
+  let t2 = cross(t1, c);
+  let p = vec2f(dot(d, t1), dot(d, t2)) / k;
+  let f = 0.015 + r * 0.7;
+  let q = abs(p) - s;
+  return (1.0 - smoothstep(-f, f, q.x)) * (1.0 - smoothstep(-f, f, q.y));
+}
+fn env(d: vec3f, r: f32) -> vec3f {
+  var c = mix(vec3f(0.40, 0.385, 0.365), vec3f(0.78, 0.77, 0.75), smoothstep(-0.3, 0.35, d.y));
+  c += vec3f(1.0, 0.97, 0.93) * 6.0 * softbox(d, KEYDIR, vec2f(0.42, 0.3), r);
+  c += vec3f(0.93, 0.96, 1.0) * 3.2 * softbox(d, RIMDIR, vec2f(0.07, 0.55), r);
+  c += vec3f(1.0, 0.99, 0.97) * 1.4 * softbox(d, FILLDIR, vec2f(0.32, 0.26), r);
+  return c;
+}
+fn ggx(N: vec3f, V: vec3f, L: vec3f, rough: f32) -> f32 {
+  let H = normalize(V + L); let a = rough * rough; let a2 = a * a;
+  let nh = max(dot(N, H), 0.0); let nl = max(dot(N, L), 0.0); let nv = max(dot(N, V), 1e-3);
+  let d = nh * nh * (a2 - 1.0) + 1.0; let D = a2 / (PI * d * d);
+  let k = a * 0.5; let G = nl / (nl * (1.0 - k) + k) * nv / (nv * (1.0 - k) + k);
+  return D * G / (4.0 * nv + 1e-4);
+}
+fn schlick(c: f32, f0: f32) -> f32 { return f0 + (1.0 - f0) * pow(1.0 - clamp(c, 0.0, 1.0), 5.0); }
+fn qrot(q: vec4f, v: vec3f) -> vec3f { let t = 2.0 * cross(q.xyz, v); return v + q.w * t + cross(q.xyz, t); }
+fn qmul(a: vec4f, b: vec4f) -> vec4f { return vec4f(a.w * b.xyz + b.w * a.xyz + cross(a.xyz, b.xyz), a.w * b.w - dot(a.xyz, b.xyz)); }
+fn objQ(id: u32) -> vec4f { if (id == 0u) { return vec4f(0.0, 0.0, 0.0, 1.0); } return u.objs[id * 2u + 1u]; }
+fn objP(id: u32, p: vec3f) -> vec3f { if (id == 0u) { return p; } return u.objs[id * 2u].xyz + qrot(u.objs[id * 2u + 1u], p); }
+// the jelly: shear and squash grow with height above the block's base, then the whole block tips
+fn deform(p: vec3f) -> vec3f {
+  let h = p.y - BOT; let sq = u.wob.z;
+  let qv = sin(p.x * 2.1 + u.wob.w) * sin(p.z * 1.7 - u.wob.w * 0.8) * u.misc.z * h;
+  let q = vec3f(p.x * (1.0 - sq * 0.45) + u.wob.x * h, BOT + h * (1.0 + sq) + qv, p.z * (1.0 - sq * 0.45) + u.wob.y * h);
+  return (u.model * vec4f(q, 1.0)).xyz;
+}
+fn deformN(n: vec3f) -> vec3f { return normalize((u.model * vec4f(n, 0.0)).xyz); }
+// the sea texture holds (height, foam, ground, 0) at cell centres; bilinear by hand
+fn seaAt(xz: vec2f) -> vec4f {
+  let fi = clamp((xz + vec2f(HALF)) / SEADX - 0.5, vec2f(0.0), vec2f(SEAN - 1.001));
+  let i = vec2i(floor(fi)); let t = fi - floor(fi);
+  let a = textureLoad(seaTex, i, 0); let b = textureLoad(seaTex, i + vec2i(1, 0), 0);
+  let c = textureLoad(seaTex, i + vec2i(0, 1), 0); let d = textureLoad(seaTex, i + vec2i(1, 1), 0);
+  return mix(mix(a, b, t.x), mix(c, d, t.x), t.y);
+}
+fn sigma() -> vec3f { return u.water.rgb * u.water.w; }
+struct FS { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
+fn fullscreen(i: u32) -> FS {
+  let p = vec2f(f32((i << 1u) & 2u), f32(i & 2u));
+  var o: FS; o.pos = vec4f(p * 2.0 - 1.0, 0.0, 1.0); o.uv = vec2f(p.x, 1.0 - p.y); return o;
+}
+`;
+
+// shading for everything solid: props, rigs, containers, fish, gulls
+const WGSL_S = WGSL_C + /* wgsl */`
+@group(0) @binding(1) var shadowMap: texture_depth_2d;
+@group(0) @binding(2) var cmp: sampler_comparison;
+@group(0) @binding(4) var causticTex: texture_2d<f32>;
+@group(0) @binding(5) var samp: sampler;
+const LIV = array<vec3f, 10>(${LIVERIES.map(h => `vec3f(${hex(h).map(f).join(', ')})`).join(', ')});
+struct VO {
+  @builtin(position) pos: vec4f, @location(0) D: vec3f, @location(1) P: vec3f, @location(2) lp: vec3f, @location(3) ln: vec3f,
+  @location(4) @interpolate(flat) oq: vec4f, @location(5) @interpolate(flat) info: vec4f, @location(6) col: vec3f, @location(7) @interpolate(flat) mat: f32, @location(8) lin: f32,
+};
+fn mkVO(P: vec3f, lp: vec3f, ln: vec3f, q: vec4f, mat: f32, info: vec4f, col: vec3f) -> VO {
+  var o: VO; let D = deform(P);
+  o.pos = u.viewProj * vec4f(D, 1.0); o.D = D; o.P = P; o.lp = lp; o.ln = ln; o.oq = q; o.info = info; o.col = col; o.mat = mat;
+  o.lin = -(u.view * vec4f(D, 1.0)).z; return o;
+}
+fn sway(p: vec3f, mat: f32) -> vec3f {
+  var q = p;
+  if (mat > 9.5 && mat < 10.5) { // weed leans with the swell
+    let g = seaAt(p.xz).z; let k = clamp(p.y - g, 0.0, 0.3); let t = u.cam.w;
+    q.x += sin(t * 1.3 + p.x * 3.0 + p.z * 2.0) * k * 0.3; q.z += cos(t * 1.1 + p.x * 2.0 - p.z) * k * 0.25;
+  }
+  return q;
+}
+@vertex fn vsP(@location(0) p: vec3f, @location(1) n: vec3f, @location(2) c: vec3f, @location(3) mo: vec2f) -> VO {
+  let id = u32(mo.y + 0.5); let q = objQ(id); let lp = sway(p, mo.x);
+  return mkVO(objP(id, lp), lp, n, q, mo.x, vec4f(f32(id), 0.0, 0.0, 0.0), c);
+}
+@vertex fn vsPS(@location(0) p: vec3f, @location(1) n: vec3f, @location(2) c: vec3f, @location(3) mo: vec2f) -> @builtin(position) vec4f {
+  let id = u32(mo.y + 0.5); return u.lightVP * vec4f(deform(objP(id, p)), 1.0);
+}
+// instanced meshes: a = (pos, object), b = rotation, c = (scale, kind, phase, extra)
+fn animate(p: vec3f, mat: f32, c: vec4f) -> vec3f {
+  var q = p;
+  if (mat > 21.5 && mat < 22.5) { q.z += sin(c.z - p.x * 6.0) * 0.07 * (0.65 - p.x); } // fish: the tail beats
+  if (mat > 30.5 && mat < 31.5) { // gull wings: flap in flight, folded when perched
+    let s = sign(p.z); let r = max(abs(p.z) - 0.01, 0.0);
+    if (c.w > 0.5) { q.z = s * (0.01 + r * 0.22); q.x = p.x - r * 0.45; q.y = p.y + r * 0.08; }
+    else { let a = sin(c.z) * 0.55 + 0.1; q.y = p.y + r * sin(a); q.z = s * (0.01 + r * cos(a)); }
+  }
+  if (mat > 39.5 && mat < 43.5) { // moon jelly: the bell pulses, arms and tentacles trail
+    let k = c.y;
+    if (mat < 41.5) { q.x *= 1.0 - 0.18 * k; q.z *= 1.0 - 0.18 * k; q.y *= 1.0 + 0.25 * k; }
+    else { q.x += sin(c.z * 0.7 + p.y * 3.0) * p.y * 0.12; q.z += cos(c.z * 0.6 + p.y * 2.5) * p.y * 0.1; q.x *= 1.0 - 0.1 * k; q.z *= 1.0 - 0.1 * k; }
+  }
+  return q;
+}
+@vertex fn vsI(@location(0) p: vec3f, @location(1) n: vec3f, @location(2) col: vec3f, @location(3) mo: vec2f,
+               @location(4) a: vec4f, @location(5) b: vec4f, @location(6) c: vec4f) -> VO {
+  let id = u32(a.w + 0.5); let q = qmul(objQ(id), b); let lp = animate(p, mo.x, c);
+  return mkVO(objP(id, a.xyz + qrot(b, lp * c.x)), lp, n, q, mo.x, c, col);
+}
+@vertex fn vsIS(@location(0) p: vec3f, @location(1) n: vec3f, @location(2) col: vec3f, @location(3) mo: vec2f,
+                @location(4) a: vec4f, @location(5) b: vec4f, @location(6) c: vec4f) -> @builtin(position) vec4f {
+  let id = u32(a.w + 0.5); let lp = animate(p, mo.x, c);
+  return u.lightVP * vec4f(deform(objP(id, a.xyz + qrot(b, lp * c.x))), 1.0);
+}
+fn shadowVis(D: vec3f, N: vec3f, px: vec2f) -> f32 {
+  let lp = u.lightVP * vec4f(D + N * 0.012, 1.0);
+  let uv = vec2f(lp.x * 0.5 + 0.5, 0.5 - lp.y * 0.5);
+  if (uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0) { return 1.0; }
+  let rot = fract(52.9829189 * fract(dot(px, vec2f(0.06711056, 0.00583715)))) * 6.2831;
+  var s = 0.0;
+  for (var i = 0; i < 8; i++) {
+    let a = f32(i) * 2.39996 + rot; let r = sqrt((f32(i) + 0.5) / 8.0) * 0.0011;
+    s += textureSampleCompareLevel(shadowMap, cmp, uv + vec2f(cos(a), sin(a)) * r, lp.z - 0.0012);
+  }
+  return s / 8.0;
+}
+fn caustic(xz: vec2f) -> f32 { return textureSampleLevel(causticTex, samp, (xz + vec2f(HALF)) / (2.0 * HALF), 0.0).r; }
+// light under the jelly: absorbed on the way down, focused into caustics
+fn underwater(P: vec3f, L: vec3f) -> vec4f {
+  let s = seaAt(P.xz); let surf = u.sea.x + s.x;
+  if (P.y >= surf - 0.002 || s.z >= surf) { return vec4f(1.0); }
+  let d = surf - P.y; let sg = sigma();
+  let c = caustic(P.xz + L.xz / L.y * d * 0.75);
+  let k = smoothstep(0.0, 0.04, d);
+  return vec4f(exp(-sg * d * 1.2) * mix(1.0, 0.3 + 1.45 * c, k), mix(1.0, 0.75, k));
+}
+// the intertidal band on walls, piles and rocks: wet, mussels, weed
+fn tidal(P: vec3f, alb: vec3f, N: vec3f) -> vec3f {
+  var c = alb;
+  let wet = smoothstep(0.12, 0.06, P.y); c *= mix(1.0, 0.62, wet);
+  let band = smoothstep(-0.16, -0.1, P.y) * smoothstep(0.1, 0.05, P.y);
+  let v = voro2(vec2f(P.x + P.z, P.y) * 70.0, 0.0);
+  let mussel = band * smoothstep(0.35, 0.65, noise3(P * 9.0)) * smoothstep(0.45, 0.2, v.x);
+  c = mix(c, vec3f(0.035, 0.04, 0.06) * (0.7 + 0.6 * v.z), mussel);
+  let weed = smoothstep(-0.08, -0.3, P.y) * smoothstep(-0.7, -0.4, P.y) * smoothstep(0.4, 0.7, noise3(P * vec3f(14.0, 4.0, 14.0)));
+  c = mix(c, vec3f(0.12, 0.2, 0.06), weed * 0.7);
+  return c;
+}
+struct SO { @location(0) color: vec4f, @location(1) lin: vec4f };
+fn shade(in: VO) -> vec3f {
+  let mat = i32(in.mat + 0.5); let P = in.P; let lp = in.lp; let t = u.cam.w; let lvl = u.sea.x;
+  var Nl = normalize(in.ln); var alb = in.col; var rough = 0.6; var f0 = 0.04; var emit = vec3f(0.0); var wrapK = 0.0; var specK = 1.0; var ao = 1.0;
+  if (mat == 1) { rough = 0.06; f0 = 0.05; specK = 2.0; }
+  else if (mat == 2) { rough = 0.38; f0 = 0.12; alb *= 0.9 + 0.2 * noise3(P * 40.0); }
+  else if (mat == 3 || mat == 15) { // tiles / slate: courses along the ridge, each tile its own shade
+    let fr = select(55.0, 75.0, mat == 15); let row = floor(P.y * fr); let gy = fract(P.y * fr);
+    let col = floor(P.x * fr * 0.55 + row * 0.5); let h = hash1(vec3f(row, col, P.z * 3.0));
+    alb *= (0.82 + 0.3 * h) * mix(0.6, 1.0, smoothstep(0.0, 0.18, gy)); rough = select(0.7, 0.45, mat == 15);
+    Nl = normalize(Nl + vec3f(0.0, 0.0, 0.0));
+  }
+  else if (mat == 4) { // timber grain
+    let g = noise3(vec3f(lp.x * 28.0, lp.y * 260.0, lp.z * 28.0)) * 0.6 + noise3(lp * 90.0) * 0.4;
+    alb *= 0.72 + 0.5 * g; rough = 0.75;
+    if (in.info.x < 0.5) { alb = tidal(P, alb, Nl); }
+  }
+  else if (mat == 5) { // corrugated sheet: the ribs bend the normal
+    let alongX = abs(Nl.x) < 0.5; let cc = select(lp.z, lp.x, alongX);
+    let r = sin(cc * 380.0);
+    let axis = select(vec3f(0.0, 0.0, 1.0), vec3f(1.0, 0.0, 0.0), alongX);
+    Nl = normalize(Nl + axis * cos(cc * 380.0) * 0.45);
+    alb *= 0.9 + 0.1 * r; rough = 0.42; f0 = 0.08;
+    alb = mix(alb, vec3f(0.42, 0.27, 0.16), smoothstep(0.62, 0.85, noise3(vec3f(lp.x * 12.0, lp.y * 40.0, lp.z * 12.0))) * 0.35);
+  }
+  else if (mat == 6) { // dressed stone: courses and joints
+    let along = select(lp.z, lp.x, abs(Nl.z) > abs(Nl.x));
+    let by = P.y * 30.0; let row = floor(by); let bx = along * 15.0 + row * 0.5;
+    let m = min(min(fract(by), 1.0 - fract(by)) * 3.0, min(fract(bx), 1.0 - fract(bx)) * 6.0);
+    let h = hash1(vec3f(row, floor(bx), 1.0));
+    alb *= (0.8 + 0.35 * h) * mix(0.55, 1.0, smoothstep(0.05, 0.25, m)); rough = 0.8;
+    alb = tidal(P, alb, Nl);
+  }
+  else if (mat == 7) { rough = 0.85; alb *= 0.9 + 0.2 * noise3(P * 60.0); }
+  else if (mat == 8) { alb *= 0.72 + 0.55 * noise3(P * 38.0); rough = 0.88; alb = tidal(P, alb, Nl); }
+  else if (mat == 9) { emit = alb * select(1.8, 9.0, in.info.x > 5.5 && in.info.x < 6.5) * u.misc.y; rough = 0.3; }
+  else if (mat == 10) { wrapK = 0.6; rough = 0.7; alb *= 0.8 + 0.4 * noise3(P * 30.0); }
+  else if (mat == 11) { // hull paint, a little weed below the waterline
+    rough = 0.32; f0 = 0.05;
+    let below = smoothstep(0.0, -0.05, P.y - lvl);
+    alb = mix(alb, alb * vec3f(0.7, 0.8, 0.6), below * 0.4 * noise3(P * 20.0));
+  }
+  else if (mat == 12) { // the ground: yard, cobbles, grass, gravel, sand
+    if (P.z < QZ - 0.001 && P.y > lvl + 0.05) {
+      if (P.z < HILLZ - 0.01) {
+        let n = noise3(P * 14.0); alb = mix(vec3f(0.16, 0.25, 0.09), vec3f(0.30, 0.38, 0.14), n) * (0.85 + 0.3 * noise3(P * 70.0)); rough = 0.95; wrapK = 0.25;
+        let path = smoothstep(0.03, 0.0, abs(P.x - 0.62 + 0.25 * sin(P.z * 3.0)));
+        alb = mix(alb, vec3f(0.45, 0.4, 0.32), path);
+      } else if (P.x < SPLITX) {
+        alb = vec3f(0.07, 0.07, 0.075) * (0.8 + 0.35 * noise3(P * 50.0) + 0.15 * noise3(P * 6.0)); rough = 0.85;
+        let gx = (P.x - (${f(HB.yard.x0 - HB.yard.dx / 2)})) / ${f(HB.yard.dx)}; let gz = (${f(HB.yard.z0 + HB.yard.dz / 2)} - P.z) / ${f(HB.yard.dz)};
+        if (gx > 0.0 && gx < ${f(HB.yard.cols)} && gz > 0.0 && gz < ${f(HB.yard.rows)}) {
+          let lx = min(fract(gx), 1.0 - fract(gx)) * ${f(HB.yard.dx)}; let lz = min(fract(gz), 1.0 - fract(gz)) * ${f(HB.yard.dz)};
+          alb = mix(alb, vec3f(0.6, 0.6, 0.56), (1.0 - smoothstep(0.003, 0.005, min(lx, lz))) * 0.8);
+        }
+        alb = mix(alb, vec3f(0.75, 0.55, 0.08), 1.0 - smoothstep(0.004, 0.007, abs(P.z - QZ + 0.06)));
+        let dash = step(0.5, fract(P.x * 4.0)) * (1.0 - smoothstep(0.003, 0.005, abs(P.z + 1.36)));
+        alb = mix(alb, vec3f(0.62, 0.62, 0.58), dash);
+      } else {
+        let v = voro2(P.xz * 42.0, 0.0); let gap = smoothstep(0.0, 0.1, v.y - v.x);
+        alb = mix(vec3f(0.12, 0.115, 0.11), vec3f(0.36, 0.34, 0.31) * (0.75 + 0.45 * v.z), gap); rough = mix(0.95, 0.6, gap);
+      }
+    } else if (P.y > lvl + 0.012) {
+      alb = vec3f(0.42, 0.40, 0.36) * (0.75 + 0.45 * noise3(P * 50.0)); rough = 0.9;
+    } else {
+      let rip = sin(P.x * 34.0 + noise3(P * 3.0) * 6.0 + P.z * 12.0) * 0.5 + 0.5;
+      alb = mix(vec3f(0.58, 0.50, 0.37), vec3f(0.70, 0.63, 0.48), rip * 0.5 + noise3(P * 7.0) * 0.5);
+      let silt = smoothstep(-0.62, -0.86, P.y) * noise3(P * 4.0) + smoothstep(QZ + 0.35, QZ, P.z) * 0.6;
+      alb = mix(alb, vec3f(0.30, 0.29, 0.24), clamp(silt, 0.0, 1.0) * 0.6);
+      Nl = normalize(Nl + vec3f(cos(P.x * 34.0 + P.z * 12.0) * 0.12, 0.0, 0.0));
+      rough = 0.9;
+    }
+    alb *= mix(0.75, 1.0, smoothstep(0.0, 0.025, abs(P.y - lvl)));
+  }
+  else if (mat == 13) { // candy strata on the cut faces
+    let g = seaAt(P.xz).z;
+    let w = P.y + 0.035 * sin(P.x * 2.3 + P.z * 1.7) + 0.02 * noise3(P * 5.0);
+    let band = floor((w - BOT) / 0.14); let fb = fract((w - BOT) / 0.14);
+    let k = i32(band) % 4;
+    var c = u.strata0.rgb; if (k == 1) { c = u.strata1.rgb; } else if (k == 2) { c = u.strata2.rgb; } else if (k == 3) { c = u.strata1.rgb * 0.92; }
+    c *= mix(0.78, 1.0, smoothstep(0.0, 0.08, fb)) * (0.94 + 0.12 * noise3(P * 60.0));
+    // the crust: what lies on top of this column
+    let crust = smoothstep(0.035, 0.02, g - P.y);
+    var top = vec3f(0.62, 0.55, 0.40);
+    if (P.z < QZ && g > lvl) { top = select(select(vec3f(0.08, 0.08, 0.085), vec3f(0.33, 0.31, 0.28), P.x > SPLITX), vec3f(0.2, 0.3, 0.1), P.z < HILLZ); }
+    alb = mix(c, top, crust); rough = mix(0.16, 0.8, crust); f0 = 0.045; specK = 1.6;
+  }
+  else if (mat == 14) { alb *= 0.82 + 0.3 * noise3(P * 25.0) - 0.12 * smoothstep(0.6, 0.9, noise3(vec3f(P.x * 30.0, P.y * 4.0, P.z * 30.0))); rough = 0.85; alb = tidal(P, alb, Nl); }
+  else if (mat == 16) { alb = vec3f(0.6); rough = 0.05; f0 = 0.5; emit = vec3f(0.25); }
+  else if (mat == 17) { let n = noise3(P * 55.0); alb *= 0.65 + 0.6 * n; rough = 0.9; wrapK = 0.4; ao = 0.7 + 0.3 * n; }
+  else if (mat == 18) { alb *= 0.8 + 0.4 * smoothstep(0.3, 0.7, noise3(P * 300.0)); rough = 0.7; }
+  else if (mat == 19) { alb = mix(alb, vec3f(0.55, 0.75, 0.66), smoothstep(0.3, 0.8, noise3(vec3f(P.x * 40.0, P.y * 6.0, P.z * 40.0))) * 0.5); rough = 0.55; }
+  else if (mat == 20 || mat == 21) { // containers in their liveries
+    var pal = LIV; let li = clamp(i32(in.info.y + 0.5), 0, 9);
+    alb = pal[li] * select(1.0, 0.45, mat == 21);
+    if (mat == 20) {
+      let side = abs(Nl.z) > 0.5; let end = abs(Nl.x) > 0.5; let cc = select(lp.x, lp.z, end);
+      if (side || end || Nl.y > 0.5) { Nl = normalize(Nl + select(vec3f(1.0, 0.0, 0.0), vec3f(0.0, 0.0, 1.0), end) * cos(cc * 520.0) * 0.4); }
+      alb *= (0.9 + 0.12 * noise3(vec3f(lp.x * 30.0, lp.y * 8.0, lp.z * 30.0) + in.info.y)) * mix(0.82, 1.0, smoothstep(0.0, 0.03, lp.y));
+    }
+    rough = 0.5;
+  }
+  else if (mat == 22) { // fish: dark backs, silver bellies
+    let kind = i32(in.info.y + 0.5); var back = vec3f(0.04, 0.17, 0.16); var belly = vec3f(0.72, 0.75, 0.78);
+    if (kind == 1) { back = vec3f(0.10, 0.16, 0.24); }
+    if (kind == 2) { back = vec3f(0.85, 0.32, 0.08); belly = vec3f(0.95, 0.62, 0.32); }
+    let up = smoothstep(-0.02, 0.05, lp.y);
+    alb = mix(belly, back, up);
+    if (kind == 0) { alb *= mix(1.0, 0.25, up * smoothstep(0.2, 0.6, sin(lp.x * 45.0 + sin(lp.y * 60.0) * 2.0))); }
+    if (kind == 2) { alb = mix(alb, vec3f(0.2, 0.45, 0.7), smoothstep(0.75, 0.9, noise3(lp * 40.0)) * 0.6); }
+    rough = 0.28; f0 = 0.12; specK = 1.4;
+  }
+  else if (mat == 50) { alb = vec3f(0.35, 0.22, 0.12); rough = 0.6; }
+  // light
+  let N = deformN(qrot(in.oq, Nl)); let V = normalize(u.cam.xyz - in.D);
+  var Nf = N; if (dot(Nf, V) < 0.0) { Nf = -Nf; }
+  let L = normalize(u.light.xyz);
+  let sh = shadowVis(in.D, Nf, in.pos.xy);
+  var wl = vec4f(1.0); if (mat != 13) { wl = underwater(P, L); }
+
+  let nl = dot(Nf, L); let diff = clamp((nl + wrapK) / (1.0 + wrapK), 0.0, 1.0);
+  let amb = mix(vec3f(0.27, 0.25, 0.23), vec3f(0.58, 0.58, 0.56), Nf.y * 0.5 + 0.5) * ao * wl.a;
+  let direct = vec3f(1.0, 0.97, 0.92) * 1.1 * diff * sh * wl.rgb;
+  let F = schlick(dot(Nf, V), f0);
+  var c = alb * (amb + direct) * (1.0 - F);
+  c += env(reflect(-V, Nf), rough) * F * (1.0 - rough * 0.85) * 0.55 * wl.a;
+  c += vec3f(1.0, 0.97, 0.92) * ggx(Nf, V, L, max(rough, 0.05)) * max(nl, 0.0) * sh * wl.rgb * specK * 0.7;
+  if (mat == 16) { c += env(reflect(-V, Nf), 0.05) * pow(1.0 - abs(dot(Nf, V)), 2.0) * 0.6; }
+  return c + emit;
+}
+@fragment fn fs(in: VO) -> SO { var o: SO; o.color = vec4f(shade(in), 1.0); o.lin = vec4f(in.lin, 0.0, 0.0, 0.0); return o; }
+// moon jellies (translucent, premultiplied) and steam/smoke puffs
+@fragment fn fsT(in: VO) -> SO {
+  let mat = i32(in.mat + 0.5);
+  let N = deformN(qrot(in.oq, normalize(in.ln))); let V = normalize(u.cam.xyz - in.D);
+  let nv = abs(dot(N, V)); let L = normalize(u.light.xyz);
+  var o: SO; o.lin = vec4f(0.0);
+  if (mat >= 40 && mat <= 43) {
+    let wl = underwater(in.P, L);
+    var a = 0.12 + 0.5 * pow(1.0 - nv, 2.0); var c = vec3f(0.78, 0.84, 0.9);
+    if (mat == 41) { c = vec3f(0.95, 0.5, 0.7); a = 0.75; }
+    if (mat == 42) { c = vec3f(0.92, 0.8, 0.88); a = 0.35; }
+    if (mat == 43) { c = vec3f(0.95, 0.92, 0.95); a = 0.25; }
+    let lit = c * (vec3f(0.55) * wl.a + wl.rgb * 0.7) + env(reflect(-V, N), 0.2) * 0.08;
+    o.color = vec4f(lit * a, a);
+  } else {
+    let smoke = in.info.z > 0.5;
+    let a = in.info.y * smoothstep(0.0, 0.7, nv) * (0.75 + 0.25 * noise3(in.lp * 3.0 + u.cam.w * 0.3));
+    let base = select(vec3f(0.95, 0.95, 0.94), vec3f(0.25, 0.24, 0.24), smoke);
+    let lit = base * (0.62 + 0.5 * clamp(dot(N, L) * 0.5 + 0.5, 0.0, 1.0));
+    o.color = vec4f(lit * a, a);
+  }
+  return o;
+}
+`;
+
+// mooring lines, crane falls, forestays, the tow line: ribbons between two object frames
+const CABLE_SEG = 14;
+const WGSL_CABLE = WGSL_C + /* wgsl */`
+@group(1) @binding(0) var<storage, read> cab: array<vec4f>;
+struct CO { @builtin(position) pos: vec4f, @location(0) col: vec3f, @location(1) lin: f32, @location(2) D: vec3f };
+fn cpt(k: u32, s: f32) -> vec3f {
+  let A = cab[k * 3u]; let B = cab[k * 3u + 1u]; let C = cab[k * 3u + 2u];
+  let a = objP(u32(A.w + 0.5), A.xyz); let b = objP(u32(B.w + 0.5), B.xyz);
+  var p = mix(a, b, s); p.y -= C.y * 4.0 * s * (1.0 - s);
+  return deform(p);
+}
+@vertex fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) k: u32) -> CO {
+  let seg = vi / 6u; let c = vi % 6u;
+  var s = f32(seg); var side = -1.0;
+  if (c == 1u || c == 2u || c == 4u) { s += 1.0; }
+  if (c == 2u || c == 4u || c == 5u) { side = 1.0; }
+  if (c == 1u) { side = -1.0; }
+  s /= ${CABLE_SEG}.0;
+  let C = cab[k * 3u + 2u];
+  let p = cpt(k, s); let p2 = cpt(k, min(s + 0.02, 1.0)); let p1 = cpt(k, max(s - 0.02, 0.0));
+  let tng = normalize(p2 - p1 + vec3f(1e-6)); let vd = normalize(u.cam.xyz - p);
+  let w = normalize(cross(tng, vd) + vec3f(1e-6)) * C.x * select(1.0, 0.0, C.z < 0.5);
+  let q = p + w * side;
+  var o: CO; o.pos = u.viewProj * vec4f(q, 1.0); o.lin = -(u.view * vec4f(q, 1.0)).z; o.D = q;
+  o.col = select(select(vec3f(0.05, 0.05, 0.055), vec3f(0.55, 0.47, 0.33), C.w > 0.5), vec3f(0.17, 0.15, 0.13), C.w > 1.5);
+  return o;
+}
+struct SO { @location(0) color: vec4f, @location(1) lin: vec4f };
+@fragment fn fs(in: CO) -> SO { var o: SO; o.color = vec4f(in.col * 0.85, 1.0); o.lin = vec4f(in.lin, 0.0, 0.0, 0.0); return o; }
+`;
+
+// caustics over the sea floor, from the curvature of the surface and a drifting light net
+const WGSL_CAUSTIC = WGSL_C + /* wgsl */`
+@vertex fn vs(@builtin(vertex_index) i: u32) -> FS { return fullscreen(i); }
+fn net(p: vec2f, t: f32) -> f32 { let v = voro2(p, t); return 1.0 - smoothstep(0.0, 0.2, v.y - v.x); }
+@fragment fn fs(in: FS) -> @location(0) vec4f {
+  let xz = (in.uv * 2.0 - 1.0) * HALF; let t = u.cam.w;
+  let s = seaAt(xz); let depth = u.sea.x + s.x - s.z;
+  if (depth <= 0.0) { return vec4f(1.0); }
+  let e = SEADX;
+  let hl = seaAt(xz - vec2f(e, 0.0)).x; let hr = seaAt(xz + vec2f(e, 0.0)).x; let hd = seaAt(xz - vec2f(0.0, e)).x; let hu = seaAt(xz + vec2f(0.0, e)).x;
+  let lap = (hl + hr + hd + hu - 4.0 * s.x) / (e * e);
+  let grad = vec2f(hr - hl, hu - hd) / (2.0 * e);
+  let focus = clamp(1.0 - lap * depth * 0.05, 0.25, 2.6);
+  let q = xz - grad * depth * 1.6;
+  var n = net(q * 6.5, t * 0.9) * 0.6 + net(q * 9.1 + 3.7, -t * 0.7) * 0.4;
+  n = mix(n, 0.4, smoothstep(0.15, 1.0, depth) * 0.55) * (1.0 - u.misc.w * 0.6);
+  return vec4f((0.32 + 1.25 * n) * focus, 0.0, 0.0, 1.0);
+}
+`;
+
+// the studio: paper sweep, shadows, the jelly's tinted shadow and contact darkening
+const WGSL_BG = WGSL_C + /* wgsl */`
+@group(0) @binding(1) var shadowMap: texture_depth_2d;
+@group(0) @binding(2) var cmp: sampler_comparison;
+@group(0) @binding(4) var causticTex: texture_2d<f32>;
+@group(0) @binding(5) var samp: sampler;
+@vertex fn vs(@builtin(vertex_index) i: u32) -> FS { return fullscreen(i); }
+const ZB = -8.0; const RC = 5.0;
+fn cyc(ro: vec3f, rd: vec3f, n: ptr<function, vec3f>) -> f32 {
+  var t = 1e5;
+  let r = ro - vec3f(0.0, BOT, 0.0);
+  if (rd.y < -1e-4) { let tf = -r.y / rd.y; let p = r + rd * tf; if (p.z >= ZB) { t = tf; *n = vec3f(0.0, 1.0, 0.0); } }
+  let oy = r.y - RC; let oz = r.z - ZB;
+  let a = rd.y * rd.y + rd.z * rd.z; let b = oy * rd.y + oz * rd.z; let c = oy * oy + oz * oz - RC * RC;
+  let disc = b * b - a * c;
+  if (disc > 0.0 && a > 1e-8) {
+    let s = sqrt(disc);
+    for (var k = 0; k < 2; k++) {
+      let tc = (-b + select(-s, s, k == 1)) / a;
+      let p = r + rd * tc;
+      if (tc > 0.0 && tc < t && p.z < ZB && p.y < RC) { t = tc; *n = normalize(vec3f(0.0, RC - p.y, ZB - p.z)); }
+    }
+  }
+  if (rd.z < -1e-4) { let tw = (ZB - RC - r.z) / rd.z; let p = r + rd * tw; if (tw > 0.0 && tw < t && p.y >= RC) { t = tw; *n = vec3f(0.0, 0.0, 1.0); } }
+  return t;
+}
+fn ign(p: vec2f) -> f32 { return fract(52.9829189 * fract(dot(p, vec2f(0.06711056, 0.00583715)))); }
+fn shadowSoft(P: vec3f, px: vec2f) -> f32 {
+  let lp = u.lightVP * vec4f(P, 1.0);
+  let uv = vec2f(lp.x * 0.5 + 0.5, 0.5 - lp.y * 0.5);
+  if (uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0) { return 1.0; }
+  let rot = ign(px) * 6.2831; var vis = 0.0;
+  for (var i = 0; i < 16; i++) {
+    let r = sqrt((f32(i) + 0.5) / 16.0) * 0.006; let a = f32(i) * 2.39996 + rot;
+    vis += textureSampleCompareLevel(shadowMap, cmp, uv + vec2f(cos(a), sin(a)) * r, lp.z - 0.002);
+  }
+  return vis / 16.0;
+}
+// light through the jelly: the slab between the floor and the sea level, tinted by the flavour
+fn jellyShadow(P: vec3f, L: vec3f) -> vec3f {
+  let lo = vec3f(-HALF, BOT, -HALF); let hi = vec3f(HALF, u.sea.x, HALF);
+  let inv = 1.0 / L; let t0 = (lo - P) * inv; let t1 = (hi - P) * inv;
+  let tmin = max(max(min(t0.x, t1.x), min(t0.y, t1.y)), min(t0.z, t1.z)); let tmax = min(min(max(t0.x, t1.x), max(t0.y, t1.y)), max(t0.z, t1.z));
+  if (tmax <= max(tmin, 0.0)) { return vec3f(1.0); }
+  let len = tmax - max(tmin, 0.0);
+  let exitP = P + L * tmax;
+  let c = textureSampleLevel(causticTex, samp, clamp((exitP.xz + vec2f(HALF)) / (2.0 * HALF), vec2f(0.0), vec2f(1.0)), 0.0).r;
+  return exp(-sigma() * len * 0.45) * (0.55 + 0.45 * c);
+}
+struct BO { @location(0) color: vec4f, @location(1) lin: vec4f, @builtin(frag_depth) depth: f32 };
+@fragment fn fs(in: FS) -> BO {
+  let ndc = vec2f(in.uv.x * 2.0 - 1.0, 1.0 - in.uv.y * 2.0);
+  let pf = u.invViewProj * vec4f(ndc, 1.0, 1.0);
+  let ro = u.cam.xyz; let rd = normalize(pf.xyz / pf.w - ro);
+  var n = vec3f(0.0, 1.0, 0.0);
+  let t = cyc(ro, rd, &n);
+  let P = ro + rd * min(t, 80.0);
+  let L = normalize(u.light.xyz);
+  let sh = shadowSoft(P, in.pos.xy);
+  let js = jellyShadow(P, L);
+  // contact darkening round the block's foot
+  let q = abs(P.xz) - vec2f(HALF); let d = length(max(q, vec2f(0.0))) + min(max(q.x, q.y), 0.0);
+  let ao = 1.0 - 0.45 * exp(-max(d, 0.0) / 0.12) * smoothstep(0.4, 0.0, P.y - BOT) - 0.12 * exp(-max(d, 0.0) / 0.8);
+  let up = smoothstep(0.0, 4.0, P.y - BOT);
+  let lam = max(dot(n, L), 0.0) / L.y;
+  let direct = 0.42 * lam * sh * js;
+  let amb = 0.58 * mix(1.0, 0.86, up);
+  var o: BO;
+  o.color = vec4f(u.bg.rgb * (amb * ao + direct) * mix(1.0, 0.92, up), 1.0);
+  let clip = u.viewProj * vec4f(P, 1.0);
+  o.depth = clamp(clip.z / clip.w, 0.0, 1.0);
+  o.lin = vec4f(-(u.view * vec4f(P, 1.0)).z, 0.0, 0.0, 0.0);
+  return o;
+}
+`;
+
+// the jelly sea itself: back faces (thickness), then the front with refraction, absorption, shafts, foam and meniscus
+const WGSL_WATER = WGSL_C + /* wgsl */`
+@group(0) @binding(1) var shadowMap: texture_depth_2d;
+@group(0) @binding(2) var cmp: sampler_comparison;
+@group(0) @binding(4) var causticTex: texture_2d<f32>;
+@group(0) @binding(5) var samp: sampler;
+struct WO { @builtin(position) pos: vec4f, @location(0) D: vec3f, @location(1) P: vec3f, @location(2) wall: f32, @location(3) lin: f32, @location(4) wn: vec3f };
+@vertex fn vs(@location(0) a: vec4f) -> WO {
+  let s = seaAt(a.xy); let surf = u.sea.x + s.x;
+  var y = surf; if (a.z > 1.5) { y = min(a.w, surf); }
+  var wn = vec3f(0.0, 1.0, 0.0); var wall = 0.0;
+  if (a.z > 0.5) { wall = 1.0; if (abs(a.x) > HALF - 1e-3) { wn = vec3f(sign(a.x), 0.0, 0.0); } else { wn = vec3f(0.0, 0.0, sign(a.y)); } }
+  let P = vec3f(a.x, y, a.y); let D = deform(P);
+  var o: WO; o.pos = u.viewProj * vec4f(D, 1.0); o.D = D; o.P = P; o.wall = wall; o.lin = -(u.view * vec4f(D, 1.0)).z; o.wn = wn; return o;
+}
+@fragment fn fsBack(in: WO) -> @location(0) vec4f { return vec4f(in.lin, select(0.0, 1.0, in.wall < 0.5), 0.0, 0.0); }
+@group(1) @binding(0) var sceneColor: texture_2d<f32>;
+@group(1) @binding(1) var sceneLin: texture_2d<f32>;
+@group(1) @binding(2) var backTex: texture_2d<f32>;
+fn caustic(xz: vec2f) -> f32 { return textureSampleLevel(causticTex, samp, clamp((xz + vec2f(HALF)) / (2.0 * HALF), vec2f(0.0), vec2f(1.0)), 0.0).r; }
+fn linAt(uv: vec2f) -> f32 { let d = vec2i(textureDimensions(sceneLin)); return textureLoad(sceneLin, clamp(vec2i(uv * vec2f(d)), vec2i(0), d - 1), 0).r; }
+@fragment fn fs(in: WO) -> @location(0) vec4f {
+  let P = in.P; let t = u.cam.w; let lvl = u.sea.x;
+  let s = seaAt(P.xz); let surf = lvl + s.x;
+  let isWall = in.wall > 0.5;
+  // normal: the sim's slope plus a whisper of fine ripples
+  var n0 = in.wn; var nr = n0;
+  if (!isWall) {
+    let e = SEADX;
+    let hx = seaAt(P.xz + vec2f(e, 0.0)).x - seaAt(P.xz - vec2f(e, 0.0)).x; let hz = seaAt(P.xz + vec2f(0.0, e)).x - seaAt(P.xz - vec2f(0.0, e)).x;
+    let rp = vec2f(noise3(vec3f(P.xz * 11.0, t * 0.5)) - 0.5, noise3(vec3f(P.xz * 11.0 + 9.0, t * 0.5)) - 0.5) * 0.05 * (1.0 - u.misc.w);
+    nr = normalize(vec3f(-hx / (2.0 * e) * 1.4 + rp.x, 1.0, -hz / (2.0 * e) * 1.4 + rp.y));
+  } else {
+    let k = sin(P.y * 30.0 + t * 0.4) * 0.008;
+    nr = normalize(n0 + vec3f(n0.z, 0.0, n0.x) * k);
+  }
+  let N = deformN(nr); let Nb = deformN(n0);
+  let V = normalize(u.cam.xyz - in.D); let L = normalize(u.light.xyz);
+  let dims = vec2f(textureDimensions(sceneColor));
+  let uv0 = in.pos.xy / dims;
+  let back = textureLoad(backTex, clamp(vec2i(in.pos.xy), vec2i(0), vec2i(dims) - 1), 0);
+  let k = length(u.cam.xyz - in.D) / max(in.lin, 1e-3);
+  let thick0 = (min(select(back.r, 1e4, back.r <= 0.0), linAt(uv0)) - in.lin) * k;
+  // refraction: bend the view by the perturbed normal, never pick up things in front of the water
+  let dv = (u.view * vec4f(N - Nb, 0.0)).xyz;
+  var uv = uv0 + vec2f(dv.x, -dv.y) * 0.09 * clamp(thick0, 0.0, 1.2) + vec2f(-Nb.x * 0.0, 0.0);
+  if (linAt(uv) < in.lin) { uv = uv0; }
+  let sceneL = linAt(uv);
+  let thick = max((min(select(back.r, 1e4, back.r <= 0.0), sceneL) - in.lin) * k, 0.0);
+  let refr = textureSampleLevel(sceneColor, samp, uv, 0.0).rgb;
+  let sg = sigma(); let T = exp(-sg * thick);
+  // light shafts: march the view ray through the jelly, gathering the caustic light that falls through each point
+  let rd = -V; var shaft = 0.0; let steps = 7;
+  for (var i = 0; i < steps; i++) {
+    let d = thick * (f32(i) + 0.5) / f32(steps); let q = P + rd * d;
+    let depth = max(lvl - q.y, 0.0);
+    shaft += caustic(q.xz + L.xz / L.y * depth * 0.75) * exp(-dot(sg, vec3f(0.33)) * (depth * 1.2 + d));
+  }
+  shaft = shaft / f32(steps) * min(thick, 2.0);
+  let sh = textureSampleCompareLevel(shadowMap, cmp, vec2f((u.lightVP * vec4f(in.D, 1.0)).x * 0.5 + 0.5, 0.5 - (u.lightVP * vec4f(in.D, 1.0)).y * 0.5), (u.lightVP * vec4f(in.D, 1.0)).z - 0.002);
+  let scatter = u.scatter.rgb * (1.0 - T) * (0.55 + 0.45 * sh) + u.scatter.rgb * shaft * 0.35;
+  var col = refr * T + scatter;
+  // the underside of the surface, seen through a wall, is a silvery mirror
+  if (isWall && back.g > 0.5 && back.r < sceneL) { col = mix(col, env(reflect(rd, vec3f(0.0, -1.0, 0.0)), 0.1) * 0.35 * T + scatter, 0.35); }
+  // studio reflection
+  let F = schlick(dot(N, V), 0.025);
+  col = col * (1.0 - F) + env(reflect(-V, N), 0.02) * F;
+  col += vec3f(1.0, 0.97, 0.92) * ggx(N, V, L, 0.05) * max(dot(N, L), 0.0) * (0.3 + 0.7 * sh) * 1.4;
+  // foam: wakes and splashes from the sim, lace where the water thins out over the shore
+  if (!isWall) {
+    let depth = surf - s.z;
+    let br = noise3(vec3f(P.xz * 38.0, t * 0.35)) * 0.6 + noise3(vec3f(P.xz * 90.0, t * 0.5)) * 0.4;
+    var foam = smoothstep(0.15, 0.6, s.y * (0.55 + br));
+    let lace = smoothstep(0.05, 0.0, depth) * smoothstep(0.35, 0.75, sin(depth * 170.0 - t * 1.8 + br * 5.0) * 0.5 + 0.5 + br * 0.4 - 0.2);
+    foam = max(foam, lace * 0.85);
+    let fl = vec3f(0.92, 0.93, 0.92) * (0.55 + 0.6 * max(dot(N, L), 0.0) * (0.4 + 0.6 * sh));
+    col = mix(col, fl, foam * 0.9);
+  }
+  // the meniscus: a bright rim where the jelly meets its cut faces
+  let edge = HALF - max(abs(P.x), abs(P.z));
+  let men = select(smoothstep(0.035, 0.0, edge), smoothstep(0.03, 0.0, surf - P.y), isWall);
+  col += vec3f(1.0, 0.99, 0.96) * men * 0.55 * (0.6 + 0.4 * F * 10.0);
+  // the wall's own sheen at the bottom where the jelly sits on its base
+  return vec4f(col, 1.0);
+}
+`;
+
+const WGSL_POST = WGSL_C + /* wgsl */`
+@group(0) @binding(1) var hdr: texture_2d<f32>;
+@group(0) @binding(2) var samp2: sampler;
+@vertex fn vs(@builtin(vertex_index) i: u32) -> FS { return fullscreen(i); }
+fn neutral(c0: vec3f) -> vec3f { // Khronos PBR Neutral
+  let start = 0.8 - 0.04; let desat = 0.15;
+  let x = min(c0.r, min(c0.g, c0.b));
+  let off = select(0.04, x - 6.25 * x * x, x < 0.08);
+  var c = c0 - off;
+  let peak = max(c.r, max(c.g, c.b));
+  if (peak < start) { return c; }
+  let d = 1.0 - start;
+  let np = 1.0 - d * d / (peak + d - start);
+  c *= np / peak;
+  let g = 1.0 - 1.0 / (desat * (peak - np) + 1.0);
+  return mix(c, vec3f(np), g);
+}
+fn oetf(c: vec3f) -> vec3f { return select(1.055 * pow(c, vec3f(1.0 / 2.4)) - 0.055, c * 12.92, c <= vec3f(0.0031308)); }
+@fragment fn fs(in: FS) -> @location(0) vec4f {
+  let c = textureSampleLevel(hdr, samp2, in.uv, 0.0).rgb * u.bg.w;
+  var m = oetf(clamp(neutral(max(c, vec3f(0.0))), vec3f(0.0), vec3f(1.0)));
+  let n = fract(sin(dot(in.pos.xy, vec2f(12.9898, 78.233))) * 43758.5453) + fract(sin(dot(in.pos.xy, vec2f(39.346, 11.135))) * 24634.6345) - 1.0;
+  m += n / 255.0;
+  return vec4f(m, 1.0);
+}
+`;
+
+// ═══════════════════════════════ water mesh: the top surface and the four cut walls ═══════════════════════════════
+function buildWater(M = 150) {
+  const v = [], idx = [], h = HB.half, at = k => -h + 2 * h * k / M;
+  for (let j = 0; j <= M; j++) for (let i = 0; i <= M; i++) v.push(at(i), at(j), 0, 0);
+  const W = M + 1;
+  for (let j = 0; j < M; j++) for (let i = 0; i < M; i++) { const a = j * W + i; idx.push(a, a + W, a + W + 1, a, a + W + 1, a + 1); }
+  const wall = (pts, flip) => {
+    const base = v.length / 4;
+    for (const [x, z] of pts) { v.push(x, z, 1, 0); v.push(x, z, 2, groundH(x, z) - 0.002); }
+    for (let k = 0; k < pts.length - 1; k++) {
+      const T0 = base + 2 * k, B0 = T0 + 1, T1 = T0 + 2, B1 = T0 + 3;
+      if (flip) idx.push(B0, T1, B1, B0, T0, T1); else idx.push(B0, B1, T1, B0, T1, T0);
+    }
+  };
+  const e = h - 0.0002, line = [];
+  for (let k = 0; k <= M * 2; k++) line.push(-h + 2 * h * k / (M * 2));
+  wall(line.map(x => [x, e]), false); wall(line.map(x => [x, -e]), true);
+  wall(line.map(z => [e, z]), true); wall(line.map(z => [-e, z]), false);
+  return { v: Float32Array.from(v), i: Uint32Array.from(idx) };
+}
+
+// cable list: [objA, local a, objB, local b, radius, sag, visible, kind (0 wire, 1 rope, 2 chain)]
+function buildCables(H, out) {
+  const C = HB.crane, wL = C.legW / 2, gy = C.girderY - HB.deckY, ay = C.apexY - HB.deckY, mid = (C.railW + C.railL) / 2, bl = C.boomTip - C.railW;
+  let n = 0;
+  const add = (oa, a, ob, b, r, sag, vis, kind) => { const k = n * 12; out.set([a[0], a[1], a[2], oa, b[0], b[1], b[2], ob, r, sag, vis ? 1 : 0, kind], k); n++; };
+  for (const [ci, base] of [[0, OBJ.craneA], [1, OBJ.craneB]]) {
+    const cr = H.cranes[ci], drop = Math.max(0.02, C.girderY - cr.hoist);
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) add(base + 2, [sx * 0.07, -0.04, sz * 0.025], base + 3, [sx * 0.07, 0.038, sz * 0.025], 0.0022, 0, drop > 0.05, 0);
+    for (const sx of [-1, 1]) {
+      add(base, [sx * wL * 0.6, ay, mid], base + 1, [sx * wL, 0.02, bl * 0.62], 0.003, 0, true, 0);
+      add(base, [sx * wL * 0.6, ay, mid], base, [sx * wL, gy + 0.02, C.backZ + 0.02], 0.003, 0, true, 0);
+    }
+  }
+  const S = H.ship, T = H.tug, moored = H.phase === 'work' || H.phase === 'boomsUp' || H.phase === 'boomsDown' || H.phase === 'tugComing' || (H.phase === 'castOff' && H.tow && H.tow.t < 1.0) || (H.phase === 'berthing' && H.berth && H.berth.stage === 'backoff');
+  const bol = x => [x, HB.deckY + 0.03, HB.quayZ - 0.03];
+  add(OBJ.ship, [0.72, 0.13, -0.1], 0, bol(0.07), 0.0035, 0.02, moored, 1);
+  add(OBJ.ship, [-0.74, 0.13, -0.1], 0, bol(-2.09), 0.0035, 0.02, moored, 1);
+  add(OBJ.ship, [0.3, 0.12, -0.16], 0, bol(-0.89), 0.003, 0.01, moored, 1);
+  add(OBJ.ship, [-0.3, 0.12, -0.16], 0, bol(-1.13), 0.003, 0.01, moored, 1);
+  add(OBJ.tug, [-0.19, 0.075, 0], OBJ.ship, [0.76, 0.13, 0], 0.004, 0.02 + (1 - T.line) * 0.14, T.line > 0.02, 1);
+  H.yachts.forEach((y, k) => add(OBJ.yacht + k, [0.15, 0.025, 0], OBJ.buoy + k, [0, 0.02, 0], 0.0025, 0.03, true, 1));
+  for (const [k, pts] of [[0, [[0.14, -0.62], [-0.14, -0.38]]], [1, [[0.14, -0.15], [-0.14, -0.45]]]]) {
+    const px = k ? HB.pier.x1 : HB.pier.x0;
+    add(OBJ.boat + k, [0.14, 0.045, 0], 0, [px, HB.pier.y + 0.03, pts[0][1]], 0.0025, 0.02, true, 1);
+    add(OBJ.boat + k, [-0.14, 0.045, 0], 0, [px, HB.pier.y + 0.03, pts[1][1]], 0.0025, 0.02, true, 1);
+  }
+  return n;
+}
+
+// ═══════════════════════════════ renderer ═══════════════════════════════
+const UBO_FLOATS = 16 * 5 + 4 * 12 + OBJ.count * 2 * 4, INST_FLOATS = 12, MAX_CABLES = 32;
+class Renderer {
+  async init(canvas, H) {
+    if (!navigator.gpu) throw new Error('nogpu');
+    const adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' });
+    if (!adapter) throw new Error('noadapter');
+    const dev = this.dev = await adapter.requestDevice();
+    dev.lost.then(info => { this.lost = info; });
+    this.canvas = canvas; this.format = navigator.gpu.getPreferredCanvasFormat();
+    this.ctx = canvas.getContext('webgpu'); this.ctx.configure({ device: dev, format: this.format, alphaMode: 'opaque' });
+    const BU = GPUBufferUsage, TU = GPUTextureUsage;
+    const buf = (data, usage) => { const b = dev.createBuffer({ size: Math.max(16, data.byteLength), usage: usage | BU.COPY_DST }); dev.queue.writeBuffer(b, 0, data); return b; };
+    this.ubo = dev.createBuffer({ size: Math.ceil(UBO_FLOATS * 4 / 256) * 256, usage: BU.UNIFORM | BU.COPY_DST });
+    this.uniforms = new Float32Array(UBO_FLOATS);
+    // meshes
+    const st = buildStatic(H), rg = buildRigs();
+    this.mesh = {};
+    for (const [k, m] of [['static', st], ['rigs', rg], ['box', buildContainer()], ['fish', buildFish()], ['gull', buildGull()], ['jelly', buildJelly()], ['ball', buildPuff()], ['water', buildWater()]])
+      this.mesh[k] = { vb: buf(m.v, BU.VERTEX), ib: buf(m.i, BU.INDEX), n: m.i.length };
+    this.stats = { staticTris: st.i.length / 3, rigTris: rg.i.length / 3 };
+    this.inst = new Float32Array(1200 * INST_FLOATS); this.instBuf = dev.createBuffer({ size: this.inst.byteLength, usage: BU.VERTEX | BU.COPY_DST });
+    this.cab = new Float32Array(MAX_CABLES * 12); this.cabBuf = dev.createBuffer({ size: this.cab.byteLength, usage: BU.STORAGE | BU.COPY_DST });
+    // textures
+    const N = HB.N;
+    this.seaData = new Float32Array(N * N * 4);
+    for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) this.seaData[(j * N + i) * 4 + 2] = groundH(-HB.half + (i + 0.5) * 2 * HB.half / N, -HB.half + (j + 0.5) * 2 * HB.half / N);
+    this.seaTex = dev.createTexture({ size: [N, N], format: 'rgba32float', usage: TU.TEXTURE_BINDING | TU.COPY_DST });
+    this.shadowDepth = dev.createTexture({ size: [2048, 2048], format: 'depth32float', usage: TU.RENDER_ATTACHMENT | TU.TEXTURE_BINDING });
+    this.causticTex = dev.createTexture({ size: [256, 256], format: 'r16float', usage: TU.RENDER_ATTACHMENT | TU.TEXTURE_BINDING });
+    this.samp = dev.createSampler({ magFilter: 'linear', minFilter: 'linear', addressModeU: 'clamp-to-edge', addressModeV: 'clamp-to-edge' });
+    this.cmp = dev.createSampler({ compare: 'less', magFilter: 'linear', minFilter: 'linear' });
+    // layouts
+    const VF = GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT;
+    const bgl = entries => dev.createBindGroupLayout({ entries });
+    const eU = { binding: 0, visibility: VF, buffer: { type: 'uniform' } }, eSea = { binding: 3, visibility: VF, texture: { sampleType: 'unfilterable-float' } };
+    const LS = bgl([eU, eSea]);
+    const L0 = bgl([eU, { binding: 1, visibility: VF, texture: { sampleType: 'depth' } }, { binding: 2, visibility: VF, sampler: { type: 'comparison' } }, eSea,
+      { binding: 4, visibility: VF, texture: { sampleType: 'float' } }, { binding: 5, visibility: VF, sampler: { type: 'filtering' } }]);
+    const LW = bgl([0, 1, 2].map(b => ({ binding: b, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: b === 0 ? 'float' : 'unfilterable-float' } })));
+    const LC = bgl([{ binding: 0, visibility: GPUShaderStage.VERTEX, buffer: { type: 'read-only-storage' } }]);
+    const PL = (...g) => dev.createPipelineLayout({ bindGroupLayouts: g });
+    this.LW = LW;
+    const mod = code => dev.createShaderModule({ code });
+    const ms = mod(WGSL_S), mc = mod(WGSL_CABLE), mca = mod(WGSL_CAUSTIC), mbg = mod(WGSL_BG), mw = mod(WGSL_WATER), mp = mod(WGSL_POST);
+    this.modules = { ms, mc, mca, mbg, mw, mp };
+    const HDR = 'rgba16float', D = 'depth32float';
+    const ds = (c = 'less', w = true) => ({ format: D, depthCompare: c, depthWriteEnabled: w });
+    const meshVB = { arrayStride: 44, attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x3' }, { shaderLocation: 1, offset: 12, format: 'float32x3' }, { shaderLocation: 2, offset: 24, format: 'float32x3' }, { shaderLocation: 3, offset: 36, format: 'float32x2' }] };
+    const instVB = { arrayStride: 48, stepMode: 'instance', attributes: [{ shaderLocation: 4, offset: 0, format: 'float32x4' }, { shaderLocation: 5, offset: 16, format: 'float32x4' }, { shaderLocation: 6, offset: 32, format: 'float32x4' }] };
+    const pm = { blend: { color: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha' }, alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha' } } };
+    const two = [{ format: HDR }, { format: 'r32float' }], twoT = [{ format: HDR, ...pm }, { format: 'r32float', writeMask: 0 }];
+    const rp = d => dev.createRenderPipeline(d);
+    this.p = {
+      shadowP: rp({ layout: PL(LS), vertex: { module: ms, entryPoint: 'vsPS', buffers: [meshVB] }, depthStencil: { ...ds(), depthBias: 2, depthBiasSlopeScale: 1.5 } }),
+      shadowI: rp({ layout: PL(LS), vertex: { module: ms, entryPoint: 'vsIS', buffers: [meshVB, instVB] }, depthStencil: { ...ds(), depthBias: 2, depthBiasSlopeScale: 1.5 } }),
+      caustic: rp({ layout: PL(LS), vertex: { module: mca, entryPoint: 'vs' }, fragment: { module: mca, entryPoint: 'fs', targets: [{ format: 'r16float' }] } }),
+      bg: rp({ layout: PL(L0), vertex: { module: mbg, entryPoint: 'vs' }, fragment: { module: mbg, entryPoint: 'fs', targets: two }, depthStencil: ds('always') }),
+      prop: rp({ layout: PL(L0), vertex: { module: ms, entryPoint: 'vsP', buffers: [meshVB] }, fragment: { module: ms, entryPoint: 'fs', targets: two }, depthStencil: ds() }),
+      inst: rp({ layout: PL(L0), vertex: { module: ms, entryPoint: 'vsI', buffers: [meshVB, instVB] }, fragment: { module: ms, entryPoint: 'fs', targets: two }, depthStencil: ds() }),
+      instT: rp({ layout: PL(L0), vertex: { module: ms, entryPoint: 'vsI', buffers: [meshVB, instVB] }, fragment: { module: ms, entryPoint: 'fsT', targets: twoT }, depthStencil: ds('less', false) }),
+      puff: rp({ layout: PL(L0), vertex: { module: ms, entryPoint: 'vsI', buffers: [meshVB, instVB] }, fragment: { module: ms, entryPoint: 'fsT', targets: [{ format: HDR, ...pm }] }, depthStencil: ds('less', false) }),
+      cable: rp({ layout: PL(LS, LC), vertex: { module: mc, entryPoint: 'vs' }, fragment: { module: mc, entryPoint: 'fs', targets: two }, depthStencil: ds() }),
+      back: rp({ layout: PL(L0), vertex: { module: mw, entryPoint: 'vs', buffers: [{ arrayStride: 16, attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x4' }] }] }, fragment: { module: mw, entryPoint: 'fsBack', targets: [{ format: 'rg32float' }] }, primitive: { cullMode: 'front' }, depthStencil: ds() }),
+      water: rp({ layout: PL(L0, LW), vertex: { module: mw, entryPoint: 'vs', buffers: [{ arrayStride: 16, attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x4' }] }] }, fragment: { module: mw, entryPoint: 'fs', targets: [{ format: HDR }] }, primitive: { cullMode: 'back' }, depthStencil: ds('less', false) }),
+      post: rp({ layout: 'auto', vertex: { module: mp, entryPoint: 'vs' }, fragment: { module: mp, entryPoint: 'fs', targets: [{ format: this.format }] } }),
+    };
+    const U = { binding: 0, resource: { buffer: this.ubo } }, SEA = { binding: 3, resource: this.seaTex.createView() };
+    this.gS = dev.createBindGroup({ layout: LS, entries: [U, SEA] });
+    this.g0 = dev.createBindGroup({ layout: L0, entries: [U, { binding: 1, resource: this.shadowDepth.createView() }, { binding: 2, resource: this.cmp }, SEA, { binding: 4, resource: this.causticTex.createView() }, { binding: 5, resource: this.samp }] });
+    this.gC = dev.createBindGroup({ layout: LC, entries: [{ binding: 0, resource: { buffer: this.cabBuf } }] });
+    this.w = 0; this.h = 0;
+    return this;
+  }
+  async compileErrors() { // for tests: every shader module's error messages
+    const out = [];
+    for (const [k, m] of Object.entries(this.modules)) { const info = await m.getCompilationInfo(); for (const msg of info.messages) if (msg.type === 'error') out.push(k + ': ' + msg.message + ' @' + msg.lineNum); }
+    return out;
+  }
+  resize(w, h) {
+    if (w === this.w && h === this.h) return;
+    this.w = w; this.h = h;
+    const dev = this.dev, RA = GPUTextureUsage.RENDER_ATTACHMENT, TB = GPUTextureUsage.TEXTURE_BINDING;
+    for (const k of ['sceneColor', 'sceneLin', 'sceneDepth', 'backTex', 'backDepth', 'hdr']) this[k]?.destroy();
+    this.sceneColor = dev.createTexture({ size: [w, h], format: 'rgba16float', usage: RA | TB | GPUTextureUsage.COPY_SRC });
+    this.sceneLin = dev.createTexture({ size: [w, h], format: 'r32float', usage: RA | TB });
+    this.sceneDepth = dev.createTexture({ size: [w, h], format: 'depth32float', usage: RA });
+    this.backTex = dev.createTexture({ size: [w, h], format: 'rg32float', usage: RA | TB });
+    this.backDepth = dev.createTexture({ size: [w, h], format: 'depth32float', usage: RA });
+    this.hdr = dev.createTexture({ size: [w, h], format: 'rgba16float', usage: RA | TB | GPUTextureUsage.COPY_DST });
+    this.gW = dev.createBindGroup({ layout: this.LW, entries: [{ binding: 0, resource: this.sceneColor.createView() }, { binding: 1, resource: this.sceneLin.createView() }, { binding: 2, resource: this.backTex.createView() }] });
+    this.gPost = dev.createBindGroup({ layout: this.p.post.getBindGroupLayout(0), entries: [{ binding: 0, resource: { buffer: this.ubo } }, { binding: 1, resource: this.hdr.createView() }, { binding: 2, resource: this.samp }] });
+  }
+  // per frame: object transforms, the sea, instances, cables
+  update(H, extra) {
+    const dev = this.dev, sea = H.sea, N = HB.N, sd = this.seaData;
+    for (let k = 0; k < N * N; k++) { sd[4 * k] = sea.D[k] ? sea.h[k] : 0; sd[4 * k + 1] = sea.foam[k]; }
+    dev.queue.writeTexture({ texture: this.seaTex }, sd, { bytesPerRow: N * 16 }, [N, N]);
+    const I = this.inst; let n = 0;
+    const put = (x, y, z, obj, q, s, c1 = 0, c2 = 0, c3 = 0) => { const o = n * INST_FLOATS; I[o] = x; I[o + 1] = y; I[o + 2] = z; I[o + 3] = obj; I[o + 4] = q[0]; I[o + 5] = q[1]; I[o + 6] = q[2]; I[o + 7] = q[3]; I[o + 8] = s; I[o + 9] = c1; I[o + 10] = c2; I[o + 11] = c3; n++; };
+    const ID = [0, 0, 0, 1], ranges = {};
+    const begin = k => { ranges[k] = [n, 0]; }, end = k => { ranges[k][1] = n - ranges[k][0]; };
+    begin('box'); const bx = H.boxInstances(this.bxTmp || (this.bxTmp = [])); for (let k = 0; k < bx.length; k += 5) put(bx[k + 1], bx[k + 2], bx[k + 3], bx[k], ID, 1, bx[k + 4]); end('box');
+    begin('fish'); for (const fi of H.fish) { const sp = Math.hypot(fi.v[0], fi.v[2]); put(fi.p[0], fi.p[1], fi.p[2], 0, quatYPR(Math.atan2(fi.v[2], fi.v[0]), Math.atan2(fi.v[1], sp + 1e-6) * 0.6, 0), [0.075, 0.06, 0.05][fi.kind] * fi.size, fi.kind, fi.phase); } end('fish');
+    begin('gull'); for (const g of H.gulls) put(g.p[0], g.p[1], g.p[2], 0, quatYPR(g.yaw, 0, g.bank), 1.15, 0, g.flap, g.state === 'perched' ? 1 : 0); end('gull');
+    begin('pellet'); for (const q of H.pellets) put(q.p[0], q.p[1], q.p[2], 0, ID, 0.007); end('pellet');
+    begin('jelly'); for (const j of H.jellies) put(j.p[0], j.p[1], j.p[2], 0, quatYPR(j.phase * 0.05, 0, 0), j.size, Math.max(0, Math.sin(j.phase)) ** 2, j.phase); end('jelly');
+    begin('puff'); for (const p of extra.puffs) put(p.p[0], p.p[1], p.p[2], 0, ID, p.r, p.a, p.smoke ? 1 : 0); end('puff');
+    this.ranges = ranges;
+    dev.queue.writeBuffer(this.instBuf, 0, I, 0, n * INST_FLOATS);
+    this.ncab = buildCables(H, this.cab); dev.queue.writeBuffer(this.cabBuf, 0, this.cab);
+    // objects
+    const u = this.uniforms, ob = 16 * 5 + 4 * 12;
+    H.objects.forEach((o, k) => { u.set([o.p[0], o.p[1], o.p[2], 0], ob + k * 8); u.set(o.q, ob + k * 8 + 4); });
+  }
+  setUniforms(o) {
+    const u = this.uniforms;
+    u.set(o.viewProj, 0); u.set(o.view, 16); u.set(o.invViewProj, 32); u.set(o.lightVP, 48); u.set(o.model, 64);
+    let k = 80;
+    for (const v of [o.cam, o.light, [this.w, this.h, 1 / this.w, 1 / this.h], o.wob, o.sea, o.water, o.scatter, o.strata0, o.strata1, o.strata2, o.bg, o.misc]) { u.set(v, k); k += 4; }
+    this.dev.queue.writeBuffer(this.ubo, 0, u);
+  }
+  render() {
+    const dev = this.dev, enc = dev.createCommandEncoder(), M = this.mesh, R = this.ranges;
+    const drawMesh = (pass, m) => { pass.setVertexBuffer(0, m.vb); pass.setIndexBuffer(m.ib, 'uint32'); pass.drawIndexed(m.n); };
+    const drawInst = (pass, m, key) => { const [s, c] = R[key]; if (!c) return; pass.setVertexBuffer(0, m.vb); pass.setVertexBuffer(1, this.instBuf, s * INST_FLOATS * 4); pass.setIndexBuffer(m.ib, 'uint32'); pass.drawIndexed(m.n, c); };
+    const solidInst = (pass) => { drawInst(pass, M.box, 'box'); drawInst(pass, M.fish, 'fish'); drawInst(pass, M.gull, 'gull'); drawInst(pass, M.ball, 'pellet'); };
+    // 1 · shadow map
+    let pass = enc.beginRenderPass({ colorAttachments: [], depthStencilAttachment: { view: this.shadowDepth.createView(), depthLoadOp: 'clear', depthStoreOp: 'store', depthClearValue: 1 } });
+    pass.setBindGroup(0, this.gS);
+    pass.setPipeline(this.p.shadowP); drawMesh(pass, M.static); drawMesh(pass, M.rigs);
+    pass.setPipeline(this.p.shadowI); solidInst(pass);
+    pass.end();
+    // 2 · caustics
+    pass = enc.beginRenderPass({ colorAttachments: [{ view: this.causticTex.createView(), loadOp: 'clear', storeOp: 'store', clearValue: [1, 0, 0, 1] }] });
+    pass.setPipeline(this.p.caustic); pass.setBindGroup(0, this.gS); pass.draw(3); pass.end();
+    // 3 · the opaque diorama, with its distance buffer; moon jellies blend in under the water
+    pass = enc.beginRenderPass({ colorAttachments: [
+        { view: this.sceneColor.createView(), loadOp: 'clear', storeOp: 'store', clearValue: [0, 0, 0, 1] },
+        { view: this.sceneLin.createView(), loadOp: 'clear', storeOp: 'store', clearValue: [1000, 0, 0, 0] }],
+      depthStencilAttachment: { view: this.sceneDepth.createView(), depthLoadOp: 'clear', depthStoreOp: 'store', depthClearValue: 1 } });
+    pass.setBindGroup(0, this.g0);
+    pass.setPipeline(this.p.bg); pass.draw(3);
+    pass.setPipeline(this.p.prop); drawMesh(pass, M.static); drawMesh(pass, M.rigs);
+    pass.setPipeline(this.p.inst); solidInst(pass);
+    pass.setPipeline(this.p.cable); pass.setBindGroup(0, this.gS); pass.setBindGroup(1, this.gC); pass.draw(CABLE_SEG * 6, this.ncab);
+    pass.setBindGroup(0, this.g0);
+    pass.setPipeline(this.p.instT); drawInst(pass, M.jelly, 'jelly');
+    pass.end();
+    // 4 · back faces of the jelly sea (how thick it is along each ray)
+    pass = enc.beginRenderPass({ colorAttachments: [{ view: this.backTex.createView(), loadOp: 'clear', storeOp: 'store', clearValue: [0, 0, 0, 0] }],
+      depthStencilAttachment: { view: this.backDepth.createView(), depthLoadOp: 'clear', depthStoreOp: 'store', depthClearValue: 1 } });
+    pass.setPipeline(this.p.back); pass.setBindGroup(0, this.g0); pass.setVertexBuffer(0, M.water.vb); pass.setIndexBuffer(M.water.ib, 'uint32'); pass.drawIndexed(M.water.n); pass.end();
+    // 5 · the water over a copy of the scene, then steam
+    enc.copyTextureToTexture({ texture: this.sceneColor }, { texture: this.hdr }, [this.w, this.h]);
+    pass = enc.beginRenderPass({ colorAttachments: [{ view: this.hdr.createView(), loadOp: 'load', storeOp: 'store' }],
+      depthStencilAttachment: { view: this.sceneDepth.createView(), depthLoadOp: 'load', depthStoreOp: 'store' } });
+    pass.setPipeline(this.p.water); pass.setBindGroup(0, this.g0); pass.setBindGroup(1, this.gW); pass.setVertexBuffer(0, M.water.vb); pass.setIndexBuffer(M.water.ib, 'uint32'); pass.drawIndexed(M.water.n);
+    pass.setPipeline(this.p.puff); pass.setBindGroup(0, this.g0); drawInst(pass, M.ball, 'puff');
+    pass.end();
+    // 6 · tone map and dither
+    pass = enc.beginRenderPass({ colorAttachments: [{ view: this.ctx.getCurrentTexture().createView(), loadOp: 'clear', storeOp: 'store', clearValue: [0, 0, 0, 1] }] });
+    pass.setPipeline(this.p.post); pass.setBindGroup(0, this.gPost); pass.draw(3); pass.end();
+    dev.queue.submit([enc.finish()]);
+  }
+}
+// ═══════════════════════════════ app ═══════════════════════════════
+const $ = id => document.getElementById(id);
+const FLAVOURS = {
+  seaglass: { name: 'Sea glass', sigma: [1.25, 0.3, 0.4], scatter: [0.07, 0.26, 0.24], strata: ['#d8ead2', '#c49264', '#6b4430'], chip: '#7fc4b4' },
+  blueberry: { name: 'Blueberry', sigma: [1.6, 0.95, 0.3], scatter: [0.04, 0.08, 0.26], strata: ['#b6a6d8', '#f1e7dc', '#5b3069'], chip: '#3e5aa6' },
+  lime: { name: 'Lime', sigma: [0.95, 0.22, 1.15], scatter: [0.2, 0.32, 0.05], strata: ['#c6dd6a', '#f6efc9', '#8b9a52'], chip: '#a6cf45' },
+};
+function neutralJS(c) {
+  const x = Math.min(...c), off = x < 0.08 ? x - 6.25 * x * x : 0.04; let v = c.map(a => a - off);
+  const peak = Math.max(...v); if (peak < 0.76) return v;
+  const d = 0.24, np = 1 - d * d / (peak + d - 0.76); v = v.map(a => a * np / peak);
+  const g = 1 - 1 / (0.15 * (peak - np) + 1); return v.map(a => a + (np - a) * g);
+}
+function invNeutral(t) { let c = t.map(a => a + 0.04); for (let it = 0; it < 60; it++) { const o = neutralJS(c); c = c.map((a, i) => a + (t[i] - o[i]) * 0.9); } return c; }
+const srgbLin = h => [1, 3, 5].map(i => { const c = parseInt(h.slice(i, i + 2), 16) / 255; return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); });
+function setStatus(text, s) { $('statusText').textContent = text; $('status').dataset.state = s; }
+function showFallback(kicker, title, body) { $('fbKicker').textContent = kicker; $('fbTitle').textContent = title; if (body) $('fbBody').textContent = body; $('fallback').hidden = false; document.body.classList.remove('ready'); }
+
+// the horn: two low detuned sawtooth reeds a fifth apart, through a low-pass
+const Sound = {
+  ctx: null, on: true,
+  wake() { if (this.ctx || !this.on) return; try { const AC = window.AudioContext || window.webkitAudioContext; if (AC) this.ctx = new AC(); } catch (e) { this.ctx = null; } },
+  horn(len = 2.0) {
+    const ctx = this.ctx; if (!ctx || !this.on) return;
+    if (ctx.state === 'suspended') ctx.resume();
+    const t = ctx.currentTime, out = ctx.createGain(), lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass'; lp.Q.value = 2.2; lp.frequency.setValueAtTime(260, t); lp.frequency.linearRampToValueAtTime(640, t + 0.18); lp.frequency.linearRampToValueAtTime(520, t + len);
+    out.gain.setValueAtTime(0, t); out.gain.linearRampToValueAtTime(0.2, t + 0.14); out.gain.setValueAtTime(0.2, t + len - 0.1); out.gain.exponentialRampToValueAtTime(0.0008, t + len + 0.45);
+    lp.connect(out); out.connect(ctx.destination);
+    for (const f of [73.4, 110.0]) for (const det of [-7, 6]) {
+      const o = ctx.createOscillator(), g = ctx.createGain(); o.type = 'sawtooth'; o.frequency.value = f; o.detune.value = det;
+      o.frequency.setValueAtTime(f * 0.97, t); o.frequency.linearRampToValueAtTime(f, t + 0.25);
+      g.gain.value = f > 100 ? 0.18 : 0.26; o.connect(g); g.connect(lp); o.start(t); o.stop(t + len + 0.5);
+    }
+  },
+};
+
+async function main() {
+  const canvas = $('gl'), reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  let H = new Harbor(), R;
+  try { R = await new Renderer().init(canvas, H); }
+  catch (e) {
+    setStatus('WebGPU · Unavailable', 'off'); document.body.classList.add('nogpu');
+    showFallback('Renderer offline', 'This harbour needs WebGPU.', e && e.message && !/nogpu|noadapter/.test(e.message) ? 'WebGPU started but failed: ' + e.message : null);
+    return;
+  }
+  let running = true;
+  R.dev.lost.then(info => { if (info.reason === 'destroyed') return; running = false; setStatus('WebGPU · Lost', 'off'); showFallback('Renderer offline', 'The GPU device was lost.', (info.message || 'The device stopped responding.') + ' Reload the page to restart the study.'); });
+  R.dev.onuncapturederror = e => console.error(e.error.message);
+
+  // ── settings ──
+  let flavour = 'seaglass', firm = 0.5, tideCm = 0, paused = false;
+  const bgLin = invNeutral(srgbLin('#E2DFDA'));
+
+  // ── camera ──
+  const HOME = { yaw: 0.42, pitch: 0.58, dist: 10.2, target: [-0.05, -0.32, 0.05] };
+  const cam = { ...HOME, target: HOME.target.slice() };
+  const FOV = 30 * Math.PI / 180;
+  let view, proj, viewProj, invVP, eye, shift = [0, 0], fit = 1;
+  // fit the whole block (with its hill and cranes) into the space the panel and title leave free
+  const BOUNDS = []; for (const x of [-HB.half, HB.half]) for (const z of [-HB.half, HB.half]) BOUNDS.push([x, HB.bottom, z], [x, z < 0 ? 0.95 : 0.28, z]);
+  BOUNDS.push([-1.9, HB.crane.apexY, HB.crane.railL], [-0.24, HB.crane.apexY, HB.crane.railL], [-1.9, 2.2, -0.9], [-0.24, 2.2, -0.9]); // booms raised
+  function layout() {
+    const r = canvas.getBoundingClientRect(), Wd = r.width, Hh = r.height, panel = $('panel').getBoundingClientRect();
+    const phone = panel.width > Wd * 0.8, head = document.querySelector('.masthead').getBoundingClientRect();
+    const rx0 = phone ? 6 : Wd * 0.03, rx1 = phone ? Wd - 6 : panel.left - 18, ry0 = phone ? head.bottom + 4 : Hh * 0.05, ry1 = phone ? panel.top - 6 : Hh * 0.95;
+    const toN = (x, y) => [x / Wd * 2 - 1, 1 - y / Hh * 2], A = toN(rx0, ry0), B = toN(rx1, ry1);
+    fit = 1; shift = [(A[0] + B[0]) / 2, (A[1] + B[1]) / 2];
+    for (let it = 0; it < 4; it++) {
+      const d = HOME.dist * fit, e = [HOME.target[0] + d * Math.cos(HOME.pitch) * Math.sin(HOME.yaw), HOME.target[1] + d * Math.sin(HOME.pitch), HOME.target[2] + d * Math.cos(HOME.pitch) * Math.cos(HOME.yaw)];
+      const vp = M4.mul(M4.persp(FOV, Wd / Hh, 0.2, 80, shift[0], shift[1]), M4.lookAt(e, HOME.target, [0, 1, 0]));
+      let x0 = 9, x1 = -9, y0 = 9, y1 = -9; for (const p of BOUNDS) { const q = M4.xform(vp, p); x0 = Math.min(x0, q[0]); x1 = Math.max(x1, q[0]); y0 = Math.min(y0, q[1]); y1 = Math.max(y1, q[1]); }
+      const s = Math.max((x1 - x0) / (B[0] - A[0]), (y1 - y0) / (A[1] - B[1]));
+      shift[0] += (A[0] + B[0]) / 2 - (x0 + x1) / 2; shift[1] += (A[1] + B[1]) / 2 - (y0 + y1) / 2;
+      fit = Math.max(0.5, Math.min(6, fit * s));
+    }
+  }
+  function updateCamera() {
+    const d = cam.dist * fit;
+    eye = [cam.target[0] + d * Math.cos(cam.pitch) * Math.sin(cam.yaw), cam.target[1] + d * Math.sin(cam.pitch), cam.target[2] + d * Math.cos(cam.pitch) * Math.cos(cam.yaw)];
+    view = M4.lookAt(eye, cam.target, [0, 1, 0]); proj = M4.persp(FOV, R.w / R.h, 0.2, 80, shift[0], shift[1]);
+    viewProj = M4.mul(proj, view); invVP = M4.inv(viewProj);
+  }
+  const L = V3.norm([-0.4655, 0.7758, 0.4255]);
+  const lightVP = M4.mul(M4.ortho(-4.6, 4.6, -4.6, 4.6, 2, 30), M4.lookAt(V3.add([0, -0.2, 0], V3.scale(L, 15)), [0, -0.2, 0], [0, 1, 0]));
+  function resize() {
+    const r = canvas.getBoundingClientRect(), dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const w = Math.max(2, Math.round(r.width * dpr)), h = Math.max(2, Math.round(r.height * dpr));
+    canvas.width = w; canvas.height = h; R.resize(w, h); layout();
+  }
+  new ResizeObserver(resize).observe(canvas); resize();
+
+  // ── the block: tipping, slosh and jelly wobble ──
+  const tilt = { x: 0, z: 0, vx: 0, vz: 0, drag: null };
+  const wob = { x: 0, z: 0, s: 0, vx: 0, vz: 0, vs: 0, quiver: 0, phase: 0 };
+  let model = M4.id(), invModel = M4.id(), slosh = [0, 0];
+  function stepTilt(dt) {
+    const axis = (k, vk, target, sideOf) => {
+      const before = tilt[vk];
+      if (target !== null) { tilt[vk] += (60 * (target - tilt[k]) - 11 * tilt[vk]) * dt; }
+      else if (tilt[k] !== 0) { tilt[vk] -= Math.sign(tilt[k]) * 7 * dt; }
+      const prev = tilt[k]; tilt[k] += tilt[vk] * dt;
+      if (target === null && prev !== 0 && Math.sign(tilt[k]) !== Math.sign(prev)) { // the lifted side lands
+        const hit = Math.abs(tilt[vk]); tilt[k] = 0; tilt[vk] = hit > 0.25 ? Math.sign(prev) * hit * 0.22 : 0;
+        wob.vs -= hit * 0.9; wob.quiver = Math.min(1, wob.quiver + hit * 1.6); sideOf(hit);
+      }
+      return tilt[vk] - before;
+    };
+    const tx = tilt.drag && tilt.drag.axis === 'x' ? tilt.drag.angle * tilt.drag.sign : null, tz = tilt.drag && tilt.drag.axis === 'z' ? tilt.drag.angle * tilt.drag.sign : null;
+    const dvx = axis('x', 'vx', tx, hit => H.sea.drop(-Math.sign(tilt.vx || 1) * 2.2, 0, 0.6, 0.006 * hit, 0));
+    const dvz = axis('z', 'vz', tz, () => {});
+    // shear lags the motion; the block quivers, then settles
+    const k = 30 + 150 * firm, c = 2 * Math.sqrt(k) * (0.07 + 0.08 * firm);
+    wob.vx += (-k * wob.x - c * wob.vx) * dt - dvx * 0.45; wob.vz += (-k * wob.z - c * wob.vz) * dt + dvz * 0.45;
+    wob.vs += (-k * 1.6 * wob.s - c * 1.2 * wob.vs) * dt;
+    wob.x += wob.vx * dt; wob.z += wob.vz * dt; wob.s += wob.vs * dt;
+    wob.quiver *= Math.exp(-dt * (1.2 + 2.5 * firm)); wob.phase += dt * (9 + 14 * firm);
+    // the water feels the tilt (gravity along the floor) and the jolt
+    slosh = [-HB.g * Math.sin(tilt.x) * 0.25 - dvx / dt * 0.01, -HB.g * Math.sin(tilt.z) * 0.25 - dvz / dt * 0.01];
+    // model: rotate about the bottom edge that stays down
+    const qx = qaxis([0, 0, 1], tilt.x), qz = qaxis([1, 0, 0], -tilt.z);
+    model = M4.mul(M4.rotAbout(qx, [-Math.sign(tilt.x || 1) * HB.half, HB.bottom, 0]), M4.rotAbout(qz, [0, HB.bottom, -Math.sign(tilt.z || 1) * HB.half]));
+    invModel = M4.inv(model);
+  }
+
+  // ── puffs: steam on the horn, smoke from the tug ──
+  const puffs = []; let smokeT = 0;
+  function puff(p, smoke, n = 1, spread = 0.02) { for (let i = 0; i < n; i++) puffs.push({ p: [p[0] + (Math.random() - 0.5) * spread, p[1], p[2] + (Math.random() - 0.5) * spread], v: [(Math.random() - 0.5) * 0.05, (smoke ? 0.12 : 0.28) + Math.random() * 0.1, (Math.random() - 0.5) * 0.05], r: smoke ? 0.018 : 0.025, a: smoke ? 0.5 : 0.85, life: 0, max: smoke ? 3.2 : 2.4, smoke }); if (puffs.length > 140) puffs.splice(0, puffs.length - 140); }
+  function stepPuffs(dt) {
+    for (const q of puffs) { q.life += dt; for (let k = 0; k < 3; k++) q.p[k] += q.v[k] * dt; q.v[0] += 0.03 * dt; q.v[1] *= Math.exp(-0.6 * dt); q.r += dt * (q.smoke ? 0.03 : 0.06); q.a0 = q.a0 ?? q.a; q.a = q.a0 * Math.max(0, 1 - q.life / q.max); }
+    for (let i = puffs.length - 1; i >= 0; i--) if (puffs[i].life > puffs[i].max) puffs.splice(i, 1);
+    const T = H.tug; smokeT -= dt;
+    if (smokeT < 0 && (Math.abs(T.speed) > 0.02 || T.wash > 0)) { smokeT = 0.3; puff(toWorld(H.objects[OBJ.tug], [-0.06, 0.25, 0]), true); }
+  }
+  function hornFx() { Sound.horn(); const f = toWorld(H.objects[OBJ.ship], [-0.72, 0.53, 0]); for (let i = 0; i < 9; i++) setTimeout(() => puff(f, false, 2, 0.03), i * 110); wob.quiver = Math.min(1, wob.quiver + 0.25); }
+
+  // ── picking ──
+  function rayFrom(cx, cy) {
+    const r = canvas.getBoundingClientRect(), nx = (cx - r.left) / r.width * 2 - 1, ny = 1 - (cy - r.top) / r.height * 2;
+    const a = M4.xform(invVP, [nx, ny, 0]), b = M4.xform(invVP, [nx, ny, 1]);
+    const ra = M4.xform(invModel, a), rb = M4.xform(invModel, b); // into the block's rest frame
+    return { o: ra, d: V3.norm(V3.sub(rb, ra)) };
+  }
+  const surfY = (x, z) => Math.max(groundH(x, z), H.level + H.sea.height(x, z));
+  function pick(ray) {
+    // lifebuoys first
+    let best = null;
+    H.lifebuoys.forEach((b, k) => { const oc = V3.sub(b.p, ray.o), t = V3.dot(oc, ray.d), d = V3.len(V3.sub(oc, V3.scale(ray.d, t))); if (t > 0 && d < 0.085 && (!best || t < best.t)) best = { kind: 'buoy', k, t }; });
+    if (best) return best;
+    // the block's box: a side face tips it, the top is water or land
+    const lo = [-HB.half, HB.bottom, -HB.half], hi = [HB.half, 1.0, HB.half];
+    let t0 = -Infinity, t1 = Infinity, face = -1;
+    for (let k = 0; k < 3; k++) {
+      if (Math.abs(ray.d[k]) < 1e-9) { if (ray.o[k] < lo[k] || ray.o[k] > hi[k]) return null; continue; }
+      let a = (lo[k] - ray.o[k]) / ray.d[k], b = (hi[k] - ray.o[k]) / ray.d[k]; if (a > b) [a, b] = [b, a];
+      if (a > t0) { t0 = a; face = k; } t1 = Math.min(t1, b);
+    }
+    if (t0 > t1 || t1 < 0) return null;
+    const P = V3.add(ray.o, V3.scale(ray.d, t0));
+    if (face !== 1 && P[1] <= Math.max(H.level + 0.03, groundH(Math.max(-HB.half + 0.02, Math.min(HB.half - 0.02, P[0])), Math.max(-HB.half + 0.02, Math.min(HB.half - 0.02, P[2]))) + 0.01))
+      return { kind: 'side', axis: face === 0 ? 'x' : 'z', sign: Math.sign(P[face]), point: P };
+    // march down to the surface
+    for (let t = Math.max(t0, 0); t < t1; t += 0.012) {
+      const p = V3.add(ray.o, V3.scale(ray.d, t));
+      if (p[1] <= surfY(p[0], p[2])) return { kind: groundH(p[0], p[2]) < H.level - 0.005 ? 'water' : 'land', point: p, t };
+    }
+    return null;
+  }
+  function planeHit(ray, y) { if (Math.abs(ray.d[1]) < 1e-6) return null; const t = (y - ray.o[1]) / ray.d[1]; return t > 0 ? V3.add(ray.o, V3.scale(ray.d, t)) : null; }
+
+  // ── input ──
+  const pointers = new Map(); let drag = null, pinch = null, wave = null, held = null;
+  function setCursor(c) { canvas.dataset.cursor = c; }
+  canvas.addEventListener('contextmenu', e => e.preventDefault());
+  canvas.addEventListener('pointerdown', e => {
+    Sound.wake(); canvas.focus({ preventScroll: true }); pointers.set(e.pointerId, [e.clientX, e.clientY]);
+    if (pointers.size === 2) { // pinch to zoom; drop whatever one finger was doing
+      endDrag(); const [a, b] = [...pointers.values()]; pinch = { d: Math.hypot(a[0] - b[0], a[1] - b[1]), dist: cam.dist }; return;
+    }
+    if (pointers.size > 2) return;
+    canvas.setPointerCapture(e.pointerId);
+    const hit = e.button === 2 ? null : pick(rayFrom(e.clientX, e.clientY));
+    if (hit && hit.kind === 'buoy') {
+      const b = H.lifebuoys[hit.k]; b.held = true; held = { k: hit.k, y: Math.max(b.p[1], H.level) + 0.22, hist: [] }; drag = { mode: 'buoy', id: e.pointerId }; setCursor('grabbing'); moveHeld(e.clientX, e.clientY);
+    } else if (hit && hit.kind === 'side') {
+      tilt.drag = { axis: hit.axis, sign: hit.sign, angle: 0, y0: e.clientY }; drag = { mode: 'tip', id: e.pointerId }; setCursor('tip');
+    } else if (hit && hit.kind === 'water') {
+      wave = { p: hit.point, prev: hit.point, t: 0 }; H.splash(hit.point[0], hit.point[2], 0.02); drag = { mode: 'wave', id: e.pointerId }; setCursor('wave');
+    } else { drag = { mode: 'orbit', id: e.pointerId, x: e.clientX, y: e.clientY }; setCursor('orbit'); }
+  });
+  function moveHeld(cx, cy) {
+    if (!held) return; const p = planeHit(rayFrom(cx, cy), held.y); if (!p) return;
+    const b = H.lifebuoys[held.k];
+    p[0] = Math.max(-HB.half + 0.08, Math.min(HB.half - 0.08, p[0])); p[2] = Math.max(-HB.half + 0.08, Math.min(HB.half - 0.08, p[2]));
+    p[1] = Math.max(held.y, groundH(p[0], p[2]) + 0.12);
+    b.p = p; b.v = [0, 0, 0]; held.hist.push([performance.now(), p.slice()]); if (held.hist.length > 6) held.hist.shift();
+  }
+  canvas.addEventListener('pointermove', e => {
+    if (pointers.has(e.pointerId)) pointers.set(e.pointerId, [e.clientX, e.clientY]);
+    if (pinch && pointers.size === 2) { const [a, b] = [...pointers.values()], d = Math.hypot(a[0] - b[0], a[1] - b[1]); cam.dist = Math.max(5, Math.min(17, pinch.dist * pinch.d / Math.max(d, 1))); return; }
+    if (!drag) { // hover cursor
+      if (e.pointerType === 'mouse') { const h = pick(rayFrom(e.clientX, e.clientY)); setCursor(!h ? 'orbit' : h.kind === 'buoy' ? 'grab' : h.kind === 'side' ? 'tip' : h.kind === 'water' ? 'wave' : 'orbit'); }
+      return;
+    }
+    if (e.pointerId !== drag.id) return;
+    if (drag.mode === 'orbit') { cam.yaw -= (e.clientX - drag.x) * 0.006; cam.pitch = Math.max(0.12, Math.min(1.4, cam.pitch + (e.clientY - drag.y) * 0.005)); drag.x = e.clientX; drag.y = e.clientY; }
+    else if (drag.mode === 'tip') { tilt.drag.angle = Math.max(0, Math.min(0.2, (tilt.drag.y0 - e.clientY) * 0.0016)); }
+    else if (drag.mode === 'wave') { const p = planeHit(rayFrom(e.clientX, e.clientY), H.level); if (p && Math.abs(p[0]) < HB.half && Math.abs(p[2]) < HB.half) wave.p = p; }
+    else if (drag.mode === 'buoy') moveHeld(e.clientX, e.clientY);
+  });
+  function endDrag() {
+    if (!drag) return;
+    if (drag.mode === 'tip') tilt.drag = null;
+    if (drag.mode === 'wave') wave = null;
+    if (drag.mode === 'buoy' && held) {
+      const b = H.lifebuoys[held.k], hs = held.hist; let v = [0, 0, 0];
+      if (hs.length > 1) { const [ta, pa] = hs[0], [tb, pb] = hs[hs.length - 1], dt = Math.max(0.016, (tb - ta) / 1000); v = V3.scale(V3.sub(pb, pa), 1 / dt); }
+      const sp = Math.hypot(v[0], v[2]), cap = 2.2; if (sp > cap) { v[0] *= cap / sp; v[2] *= cap / sp; }
+      b.v = [v[0], 0.5 + Math.min(1, sp * 0.3), v[2]]; b.held = false; held = null;
+    }
+    drag = null; setCursor('orbit');
+  }
+  const endPointer = e => { pointers.delete(e.pointerId); if (pinch && pointers.size < 2) { pinch = null; return; } if (drag && e.pointerId === drag.id) endDrag(); };
+  canvas.addEventListener('pointerup', endPointer); canvas.addEventListener('pointercancel', endPointer);
+  canvas.addEventListener('wheel', e => { e.preventDefault(); cam.dist = Math.max(5, Math.min(17, cam.dist * Math.exp(e.deltaY * 0.0011))); }, { passive: false });
+  canvas.addEventListener('dblclick', () => resetView());
+
+  // ── panel ──
+  function resetView() { Object.assign(cam, { ...HOME, target: HOME.target.slice() }); }
+  const sw = $('swatches');
+  for (const [k, v] of Object.entries(FLAVOURS)) {
+    const b = document.createElement('button'); b.className = 'swatch'; b.setAttribute('role', 'radio'); b.dataset.v = k; b.setAttribute('aria-checked', k === flavour);
+    b.innerHTML = `<span class="chip"><svg viewBox="0 0 60 28" preserveAspectRatio="none"><rect width="60" height="28" fill="${v.chip}"/><rect y="17" width="60" height="4" fill="${v.strata[0]}"/><rect y="21" width="60" height="3.5" fill="${v.strata[1]}"/><rect y="24.5" width="60" height="3.5" fill="${v.strata[2]}"/><path d="M0 6c8-3 14 3 22 0s14-3 22 0 12 2 16 0" stroke="#fff" stroke-opacity=".7" fill="none"/></svg></span><span class="swname">${v.name}</span>`;
+    b.addEventListener('click', () => setFlavour(k));
+    sw.appendChild(b);
+  }
+  function setFlavour(k) { if (!FLAVOURS[k]) return; flavour = k; sw.querySelectorAll('.swatch').forEach(s => s.setAttribute('aria-checked', s.dataset.v === k)); }
+  sw.addEventListener('keydown', e => { const keys = Object.keys(FLAVOURS), i = keys.indexOf(flavour); if (e.key === 'ArrowRight' || e.key === 'ArrowDown') { setFlavour(keys[(i + 1) % keys.length]); sw.querySelector(`[data-v="${flavour}"]`).focus(); e.preventDefault(); } if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') { setFlavour(keys[(i + keys.length - 1) % keys.length]); sw.querySelector(`[data-v="${flavour}"]`).focus(); e.preventDefault(); } });
+  $('firm').addEventListener('input', e => { firm = +e.target.value; $('firmOut').textContent = firm.toFixed(2); });
+  $('damp').addEventListener('input', e => { H.sea.damping = +e.target.value; $('dampOut').textContent = (+e.target.value).toFixed(2); });
+  $('tide').addEventListener('input', e => { tideCm = +e.target.value; $('tideOut').textContent = (tideCm > 0 ? '+' : tideCm < 0 ? '−' : '') + Math.abs(tideCm) + ' cm'; });
+  function setPaused(p) { paused = p; $('pause').textContent = p ? 'Resume' : 'Pause'; setStatus(p ? 'WebGPU · Paused' : 'WebGPU · Live', p ? 'paused' : 'live'); }
+  function reset() { const damp = H.sea.damping; H = new Harbor(); H.sea.damping = damp; Object.assign(tilt, { x: 0, z: 0, vx: 0, vz: 0, drag: null }); Object.assign(wob, { x: 0, z: 0, s: 0, vx: 0, vz: 0, vs: 0, quiver: 0 }); puffs.length = 0; drag = null; wave = null; held = null; refresh(true); }
+  function castOrCall() { Sound.wake(); if (H.canCastOff()) H.castOff(); else if (H.canCallIn()) H.callIn(); refresh(true); }
+  function horn() { Sound.wake(); H.horn(); }
+  function feed() { H.feed(); refresh(true); }
+  $('castOff').addEventListener('click', castOrCall); $('horn').addEventListener('click', horn); $('feed').addEventListener('click', feed);
+  $('reset').addEventListener('click', reset); $('pause').addEventListener('click', () => setPaused(!paused)); $('resetView').addEventListener('click', resetView);
+  $('sound').addEventListener('click', () => { Sound.on = !Sound.on; $('sound').setAttribute('aria-pressed', Sound.on); $('sound').textContent = Sound.on ? 'Sound on' : 'Sound off'; if (Sound.on) Sound.wake(); });
+  $('sheetToggle').addEventListener('click', () => { const p = $('panel'), open = !p.classList.contains('open'); p.classList.toggle('open', open); $('sheetToggle').setAttribute('aria-expanded', open); requestAnimationFrame(layout); });
+  window.addEventListener('keydown', e => {
+    if (e.target.matches('input, textarea') || e.metaKey || e.ctrlKey || e.altKey) return;
+    if (e.key === ' ') { e.preventDefault(); if (!e.repeat) horn(); }
+  });
+
+  // ── readouts ──
+  let lastLabel = '';
+  function refresh(force) {
+    const st = H.status(), atSea = H.phase === 'atSea';
+    $('shipStatus').textContent = st; $('peek').textContent = st;
+    const label = atSea || H.phase === 'comingIn' ? 'Call her in' : 'Cast off', ok = atSea ? H.canCallIn() : H.canCastOff();
+    if (label !== lastLabel || force) { $('castOff').textContent = label; lastLabel = label; }
+    $('castOff').disabled = !ok;
+    $('tBoxes').textContent = H.tally.boxes; $('tVoyages').textContent = H.tally.voyages; $('tFed').textContent = H.tally.fed;
+    const a = Math.round(H.activity() * 100); $('meter').style.width = a + '%'; $('meterWrap').setAttribute('aria-valuenow', a);
+  }
+
+  // ── simulation ──
+  const STEP = 1 / 60; let simMs = 0;
+  function simStep() {
+    const t0 = performance.now();
+    stepTilt(STEP);
+    // the tide eases towards the slider
+    const lvl = H.level + Math.max(-0.02 * STEP * 6, Math.min(0.02 * STEP * 6, tideCm / 100 - H.level));
+    if (wave) {
+      const p = wave.p, v = V3.scale(V3.sub(p, wave.prev), 1 / STEP), sp = Math.min(3, Math.hypot(v[0], v[2]));
+      if (groundH(p[0], p[2]) < H.level - 0.01) {
+        H.sea.drop(p[0], p[2], 0.11, -0.0035 - sp * 0.004, Math.min(0.5, sp * 0.12));
+        H.sea.push(p[0], p[2], 0.15, v[0] * 0.035, v[2] * 0.035);
+        H.threats.push({ p: [p[0], H.level, p[2]], r: 0.45, t: 0.1 });
+      }
+      wave.prev = p;
+    }
+    H.step(STEP, { level: Math.abs(lvl - H.level) > 1e-4 ? lvl : H.level, ax: slosh[0], az: slosh[1] });
+    for (const ev of H.events) { if (ev.type === 'horn') hornFx(); }
+    stepPuffs(STEP);
+    simMs = simMs * 0.95 + (performance.now() - t0) * 0.05;
+  }
+
+  // ── frame ──
+  let last = performance.now(), acc = 0, readT = 0, frames = 0, fps = 60, fpsT = 0;
+  function frame(now) {
+    if (!running) return;
+    const realDt = Math.min(0.1, (now - last) / 1000); last = now;
+    fpsT += realDt; frames++; if (fpsT > 0.5) { fps = frames / fpsT; frames = 0; fpsT = 0; }
+    if (!paused) { acc += realDt; let n = 0; while (acc >= STEP && n < 3) { acc -= STEP; n++; simStep(); } if (acc > STEP) acc = 0; }
+    updateCamera();
+    R.update(H, { puffs });
+    const fl = FLAVOURS[flavour], k = reduced ? 0.4 : 1;
+    R.setUniforms({
+      viewProj, view, invViewProj: invVP, lightVP, model, cam: [...eye, H.t], light: [...L, 1],
+      wob: [wob.x * 0.06 * k, wob.z * 0.06 * k, wob.s * 0.05 * k, wob.phase], sea: [H.level, HB.N, 2 * HB.half / HB.N, HB.half],
+      water: [...fl.sigma, 1], scatter: [...fl.scatter, 1], strata0: [...srgbLin(fl.strata[0]), 1], strata1: [...srgbLin(fl.strata[1]), 1], strata2: [...srgbLin(fl.strata[2]), 1],
+      bg: [...bgLin, 1], misc: [0, 1, wob.quiver * 0.004 * k, reduced ? 1 : 0],
+    });
+    R.render();
+    readT += realDt; if (readT > 0.12) { readT = 0; refresh(); }
+    requestAnimationFrame(frame);
+  }
+  setStatus('WebGPU · Live', 'live'); document.body.classList.add('ready'); refresh(true);
+  requestAnimationFrame(frame);
+
+  // deterministic test hook
+  window.harbor = {
+    get H() { return H; },
+    state: () => ({ phase: H.phase, status: H.status(), t: +H.t.toFixed(2), tally: { ...H.tally }, level: +H.level.toFixed(3), tilt: [+tilt.x.toFixed(3), +tilt.z.toFixed(3)], wobble: [+wob.x.toFixed(3), +wob.z.toFixed(3), +wob.s.toFixed(3)], quiver: +wob.quiver.toFixed(3),
+      castLabel: $('castOff').textContent, castDisabled: $('castOff').disabled, flavour, paused, fps: Math.round(fps), simMs: +simMs.toFixed(2), puffs: puffs.length, issues: audit(H) }),
+    step(n = 1) { for (let i = 0; i < n; i++) simStep(); refresh(); return this.state(); },
+    castOff: castOrCall, horn, feed, reset, pause: setPaused, flavour: setFlavour, resetView,
+    tide(cm) { const el = $('tide'); el.value = cm; el.dispatchEvent(new Event('input')); },
+    tip(axis = 'x', sign = 1, angle = 0.15) { tilt.drag = { axis, sign, angle, y0: 0 }; },
+    release() { tilt.drag = null; },
+    splash: (x, z, a = 0.04) => H.splash(x, z, a),
+    camera: o => Object.assign(cam, o),
+    toScreen(p) { const c = M4.xform(viewProj, M4.xform(model, p)), r = canvas.getBoundingClientRect(); return [r.left + (c[0] * 0.5 + 0.5) * r.width, r.top + (0.5 - c[1] * 0.5) * r.height]; },
+    pickAt: (x, y) => { const h = pick(rayFrom(x, y)); return h && { kind: h.kind, axis: h.axis, k: h.k }; },
+    compileErrors: () => R.compileErrors(),
+    stats: () => ({ ...R.stats, instances: R.ranges, cables: R.ncab }),
+  };
+}
+main();
+</script>
+</body>
+</html>

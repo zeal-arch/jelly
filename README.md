@@ -8,6 +8,7 @@ A collection of single-file interactive browser studies. Each one lives in its o
 | [jelly-knife-citrus](jelly-knife-citrus/) | WebGPU soft-body orange slice you can stretch, cut with a knife or crinkle cutter, and stamp with cookie cutters |
 | [tropical-cove](tropical-cove/) | Three.js diorama: a procedural limestone cove in a block of clear water you can stir |
 | [mochi-dango](mochi-dango/) | WebGPU hanami dango on a bamboo skewer: squish, slide off, stretch until they tear, stick back together |
+| [harbor-jelly](harbor-jelly/) | WebGPU container harbour in a wobbly block of jelly sea: cranes, a feeder ship and tug, gulls and fish, waves you make yourself |
 
 ## Run locally
 
