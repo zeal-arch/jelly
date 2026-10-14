@@ -45,7 +45,19 @@ console.log('Harbor Jelly · choreography');
   check('nothing collides (ship, tug, quay, pier, breakwater, yachts, buoys, sea bed)', r.issues.length === 0, r.issues.slice(0, 5).join('; '));
   check('the cranes keep their distance', r.craneMin >= HB.crane.legW, `closest ${r.craneMin.toFixed(3)}`);
   check('the simulation stays finite', !r.nan);
+  check('hundreds of containers in the terminal', new Harbor(11).boxInstances().length / 5 >= 200, `${new Harbor(11).boxInstances().length / 5} boxes`);
   check('a sim step stays cheap (< 4 ms in node)', ms < 4, `${ms.toFixed(2)} ms/step`);
+}
+{ // a box carried across the yard never clips the stacks it passes over
+  const H = new Harbor(21), B = HB.box; let clip = '';
+  run(H, 100, {}, h => {
+    for (const cr of h.cranes) {
+      if (cr.box < 0 || !cr.move || cr.move.step !== 4) continue;
+      h.yard.forEach((st, k) => { const c = Math.floor(k / HB.yard.rows), r = k % HB.yard.rows, top = h.yardSlot(c, r, st.length);
+        if (Math.abs(top[0] - cr.x) < B.L && Math.abs(top[2] - cr.trolley) < B.W && cr.hoist - B.H < top[1] - 0.005 && !clip) clip = `crane ${cr.id} over col ${c} row ${r} at ${h.t.toFixed(1)} s`; });
+    }
+  });
+  check('a carried box clears every yard stack', !clip, clip);
 }
 { // cast off early
   const H = new Harbor(3); run(H, 8);

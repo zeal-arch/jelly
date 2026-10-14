@@ -270,8 +270,8 @@ function makeLayout(seed = 7) {
   for (const t of trees) t.y = groundH(t.x, t.z);
   for (const x of [0.55, 0.95, 1.3, 2.05, 2.45]) lamps.push({ x, z: -1.12, y: HB.fishY, h: 0.26 });
   lamps.push({ x: 1.55, z: 0.11, y: HB.pier.y, h: 0.22 });
-  const towers = [{ x: -2.45, z: -2.0, h: 0.85 }, { x: 0.22, z: -2.02, h: 0.85 }];
-  const office = { x: -2.46, z: -1.3, w: 0.2, d: 0.26, h: 0.2 };
+  const towers = [{ x: -2.54, z: -2.0, h: 0.85 }, { x: 0.22, z: -2.02, h: 0.85 }];
+  const office = { x: -2.47, z: -1.36, w: 0.18, d: 0.24, h: 0.2 };
   const shed = { x: 0.92, z: -1.6, w: 0.72, d: 0.4, h: 0.16, roof: 0.1 };
   buildings.push(office, shed, { x: church.x, z: church.z, w: church.w, d: church.d, h: church.h });
   for (const h of houses) buildings.push(h);
@@ -481,7 +481,7 @@ class Harbor {
     this.boxes = []; this.yard = []; this.shipStacks = [];
     const box = (state) => { const b = { id: this.boxes.length, livery: (R() * LIVERIES.length) | 0, ...state }; this.boxes.push(b); return b.id; };
     for (let c = 0; c < Y.cols; c++) for (let r = 0; r < Y.rows; r++) {
-      const work = [2, 3, 4, 7, 8, 9].includes(c), n = work ? 1 + ((R() * 3) | 0) : 1 + ((R() * 4) | 0);
+      const work = [2, 3, 4, 7, 8, 9].includes(c), outer = [0, 1, 10].includes(c), n = work ? 1 + ((R() * 3) | 0) : outer ? 4 + ((R() * 2) | 0) : 3 + ((R() * 2) | 0);
       const st = []; for (let t = 0; t < n; t++) st.push(box({ at: 'yard' })); this.yard.push(st);
     }
     for (let b = 0; b < S.bays; b++) for (let r = 0; r < S.rows; r++) { const st = []; for (let t = 0; t < S.tiers; t++) st.push(box({ at: 'ship' })); this.shipStacks.push(st); }
@@ -736,7 +736,7 @@ class Harbor {
     const T = this.tug, tq = quatYPR(T.pose.yaw, T.pitch || 0, T.roll || 0);
     set(OBJ.tug, [T.pose.x, T.y || this.level, T.pose.z], tq);
     set(OBJ.tugProp, toWorld(O[OBJ.tug], [-0.2, -0.05, 0]), qmul(tq, qaxis([1, 0, 0], T.prop)));
-    set(OBJ.lamp, [HB.light[0], 0.98, HB.light[1]], qaxis([0, 1, 0], this.t * 0.9));
+    set(OBJ.lamp, [HB.light[0], 0.91, HB.light[1]], qaxis([0, 1, 0], this.t * 0.9));
     this.cranes.forEach((cr, k) => {
       const base = k ? OBJ.craneB : OBJ.craneA, C = HB.crane;
       set(base, [cr.x, HB.deckY, 0], [0, 0, 0, 1]);
@@ -2235,6 +2235,7 @@ async function main() {
 
   // ── settings ──
   let flavour = 'seaglass', firm = 0.5, tideCm = 0, paused = false;
+  if (reduced) H.swellAmp = 0.4; // calmer sea for reduced motion
   const bgLin = invNeutral(srgbLin('#E2DFDA'));
 
   // ── camera ──
@@ -2269,7 +2270,7 @@ async function main() {
   const L = V3.norm([-0.4655, 0.7758, 0.4255]);
   const lightVP = M4.mul(M4.ortho(-4.6, 4.6, -4.6, 4.6, 2, 30), M4.lookAt(V3.add([0, -0.2, 0], V3.scale(L, 15)), [0, -0.2, 0], [0, 1, 0]));
   function resize() {
-    const r = canvas.getBoundingClientRect(), dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const r = canvas.getBoundingClientRect(), dpr = Math.min(window.devicePixelRatio || 1, 1.5);
     const w = Math.max(2, Math.round(r.width * dpr)), h = Math.max(2, Math.round(r.height * dpr));
     canvas.width = w; canvas.height = h; R.resize(w, h); layout();
   }
@@ -2425,7 +2426,7 @@ async function main() {
   $('damp').addEventListener('input', e => { H.sea.damping = +e.target.value; $('dampOut').textContent = (+e.target.value).toFixed(2); });
   $('tide').addEventListener('input', e => { tideCm = +e.target.value; $('tideOut').textContent = (tideCm > 0 ? '+' : tideCm < 0 ? '−' : '') + Math.abs(tideCm) + ' cm'; });
   function setPaused(p) { paused = p; $('pause').textContent = p ? 'Resume' : 'Pause'; setStatus(p ? 'WebGPU · Paused' : 'WebGPU · Live', p ? 'paused' : 'live'); }
-  function reset() { const damp = H.sea.damping; H = new Harbor(); H.sea.damping = damp; Object.assign(tilt, { x: 0, z: 0, vx: 0, vz: 0, drag: null }); Object.assign(wob, { x: 0, z: 0, s: 0, vx: 0, vz: 0, vs: 0, quiver: 0 }); puffs.length = 0; drag = null; wave = null; held = null; refresh(true); }
+  function reset() { const damp = H.sea.damping; H = new Harbor(); H.sea.damping = damp; if (reduced) H.swellAmp = 0.4; Object.assign(tilt, { x: 0, z: 0, vx: 0, vz: 0, drag: null }); Object.assign(wob, { x: 0, z: 0, s: 0, vx: 0, vz: 0, vs: 0, quiver: 0 }); puffs.length = 0; drag = null; wave = null; held = null; refresh(true); }
   function castOrCall() { Sound.wake(); if (H.canCastOff()) H.castOff(); else if (H.canCallIn()) H.callIn(); refresh(true); }
   function horn() { Sound.wake(); H.horn(); }
   function feed() { H.feed(); refresh(true); }
